@@ -1,0 +1,14 @@
+{
+  "name": "coupang-seller-agent",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker 기반 쿠팡 위탁판매 전문 AI 비서 앱",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "wrangler": "^3.80.0"
+  }
+}
