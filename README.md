@@ -41,7 +41,7 @@ npm ci
 npm run dev             # 로컬 Workers + 정적 자산, 0.0.0.0:8787
 npm test                # 네트워크 불필요: 도메인·CSV·저장소·Worker·API 어댑터 테스트
 npx playwright install chromium
-npm run test:e2e        # 데스크톱·모바일 사용자 흐름, 로컬 서버 자동 시작
+npm run test:e2e        # 데스크톱·모바일 사용자 흐름 + 접근성·가독성, 로컬 서버 자동 시작
 npx wrangler deploy --dry-run
 npm run deploy          # Cloudflare 권한이 있는 운영 환경에서만 실행
 ```
@@ -49,6 +49,13 @@ npm run deploy          # Cloudflare 권한이 있는 운영 환경에서만 실
 선택적으로 `CHROMIUM_EXECUTABLE_PATH`를 설정해 설치된 Chromium으로 E2E를 실행할 수 있습니다. API 어댑터는 모의 공급사 응답으로 테스트합니다. 실서비스 도매몰 접속이나 키 없이 기본 기능과 CSV를 사용할 수 있습니다.
 
 서비스 배포 대상: `coupang-seller-agent.luxrank.workers.dev` (이 저장소의 설정 기준; 변경 사항 배포는 별도로 실행).
+
+### 화면 가독성·접근성
+
+- `public/styles.css`의 공통 색상 토큰으로 진한 네이비 본문, 인디고 주요 동작, 초록 선택·이익, 황색 주의, 적색 오류를 구분합니다. 선택·오류는 색상 외에도 텍스트·체크·테두리로 표시합니다.
+- 상품명 15px, 가격 24px, 상품 보조 정보 12px 이상을 유지하고 상품·검색 입력창은 16px로 표시합니다. 좁은 화면은 글씨를 축소하는 대신 카드·필터·입력창 배치를 바꿉니다.
+- `tests/e2e/accessibility.spec.js`는 axe의 WCAG A/AA 자동 검사(색상 대비 포함)를 목록·상세·비교·판매 준비·CSV·직접 추가·도매몰 안내와 선택/호버 상태에 실행합니다. 키보드 포커스와 320~1680px 가로 넘침도 검사합니다.
+- 자동 검사 통과가 전체 접근성 준수를 보장하지는 않습니다. 실제 화면 확대·키보드·보조기기 확인도 함께 진행하세요.
 
 ## 도매꾹 API 연결 (운영자)
 
