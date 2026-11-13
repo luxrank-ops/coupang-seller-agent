@@ -2,14 +2,18 @@ name = "coupang-seller-agent"
 main = "src/index.js"
 compatibility_date = "2026-11-01"
 
-# 매일 아침 9시, 저녁 6시(KST 기준 UTC 0시, 9시) 자동 점검 Cron
-[triggers]
-crons = ["0 0,9 * * *"]
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+not_found_handling = "404-page"
 
 [vars]
-# 기본 마진율 설정 (30%)
 DEFAULT_TARGET_MARGIN = "0.30"
-# 기본 쿠팡 수수료율 (생활용품 기준 10.8%)
 DEFAULT_COUPANG_FEE = "0.108"
-# LLM 제공자 (gemini 또는 openai)
 LLM_PROVIDER = "gemini"
+
+# Optional server-side credentials (never put them in this file):
+# npx wrangler secret put DOMEGGOOK_API_KEY
+# npx wrangler secret put GEMINI_API_KEY
+# npx wrangler secret put OPENAI_API_KEY
