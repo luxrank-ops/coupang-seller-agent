@@ -3,6 +3,7 @@ import { SOURCES, CATEGORIES } from "../public/lib/sources.js";
 import { filterProducts, normalizeMoney } from "../public/lib/products.js";
 import { generateProductSeo } from "./prompt.js";
 import { boundedInteger, searchDomeggook, SourcingError } from "./sourcing.js";
+import { searchOwnerclan } from "./ownerclan.js";
 
 const jsonHeaders = {
   "Content-Type": "application/json; charset=utf-8",
@@ -97,6 +98,7 @@ export default {
           categories: CATEGORIES,
           integrations: {
             domeggook: Boolean(env.DOMEGGOOK_API_KEY),
+            ownerclan: Boolean(env.OWNERCLAN_API_KEY),
             seo: Boolean(
               env.LLM_PROVIDER === "openai"
                 ? env.OPENAI_API_KEY
@@ -118,6 +120,31 @@ export default {
         }
         if (mode !== "live")
           throw new SourcingError("지원하지 않는 검색 모드입니다.", 400);
+
+        const source = url.searchParams.get("source") || "domeggook";
+        if (source === "ownerclan") {
+          const cache = typeof caches !== "undefined" ? caches.default : null;
+          const cacheUrl = new URL("/api/products", url.origin);
+          cacheUrl.search = new URLSearchParams({
+            mode: "live",
+            source: "ownerclan",
+            q: (url.searchParams.get("q") || "").trim(),
+            page: url.searchParams.get("page") || "1",
+          }).toString();
+          const cacheKey = new Request(cacheUrl);
+          if (env.OWNERCLAN_API_KEY && cache) {
+            const hit = await cache.match(cacheKey);
+            if (hit) return hit;
+          }
+          const result = await searchOwnerclan(env, url.searchParams);
+          const response = json(result, 200, {
+            "Cache-Control": "public, max-age=60",
+          });
+          if (cache && ctx.waitUntil)
+            ctx.waitUntil(cache.put(cacheKey, response.clone()));
+          return response;
+        }
+
         // Short, query-specific cache reduces upstream use without ever caching secrets.
         const cache = typeof caches !== "undefined" ? caches.default : null;
         const cacheUrl = new URL("/api/products", url.origin);
