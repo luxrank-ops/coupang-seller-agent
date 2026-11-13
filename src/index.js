@@ -139,16 +139,63 @@ export default {
           ctx.waitUntil(cache.put(cacheKey, response.clone()));
         return response;
       }
-      if (url.pathname === "/api/register-product")
-        return json(
-          {
-            ok: false,
-            mode: "not_connected",
-            error:
-              "실제 쿠팡 WING 상품 등록 API는 연결되지 않았습니다. 판매 준비 데이터를 복사해 WING에서 직접 등록해주세요. 이 요청으로 상품이 등록되거나 주문되지 않습니다.",
-          },
-          501,
-        );
+      if (url.pathname === "/api/register-product") {
+        // Test Coupang OpenAPI connection
+        try {
+          const accessKey = env.COUPANG_ACCESS_KEY || "6c1305f9-3253-4859-b94a-2c2536641167";
+          const secretKey = env.COUPANG_SECRET_KEY || "2d6ab9986cd3b15dc12b8209d6d65e503fb56fbf";
+          const vendorId = env.COUPANG_VENDOR_ID || "A01818224";
+
+          const now = new Date();
+          const pad = (n) => String(n).padStart(2, "0");
+          const yy = String(now.getUTCFullYear()).slice(-2);
+          const MM = pad(now.getUTCMonth() + 1);
+          const dd = pad(now.getUTCDate());
+          const hh = pad(now.getUTCHours());
+          const mm = pad(now.getUTCMinutes());
+          const ss = pad(now.getUTCSeconds());
+          const datetimeStr = `${yy}${MM}${dd}T${hh}${mm}${ss}Z`;
+
+          const method = "GET";
+          const path = "/v2/providers/seller_api/apis/api/v1/marketplace/seller-products";
+          const query = `vendorId=${vendorId}&page=1&maxPerPage=1`;
+          const message = datetimeStr + method + path + query;
+
+          const enc = new TextEncoder();
+          const key = await crypto.subtle.importKey(
+            "raw",
+            enc.encode(secretKey),
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"]
+          );
+          const sigBuf = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+          const signature = Array.from(new Uint8Array(sigBuf))
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join("");
+
+          const authHeader = `CEA algorithm=HmacSHA256, access-key=${accessKey}, signed-date=${datetimeStr}, signature=${signature}`;
+
+          const coupangRes = await fetch(
+            `https://api-gateway.coupang.com${path}?${query}`,
+            {
+              method: "GET",
+              headers: {
+                "Content-Type": "application/json;charset=UTF-8",
+                Authorization: authHeader,
+              },
+            }
+          );
+          const coupangText = await coupangRes.text();
+          return json({
+            ok: coupangRes.ok,
+            status: coupangRes.status,
+            data: coupangText.slice(0, 500),
+          });
+        } catch (err) {
+          return json({ ok: false, error: err.message }, 500);
+        }
+      }
       const body = await readJson(request);
       if (
         typeof body.name !== "string" ||
