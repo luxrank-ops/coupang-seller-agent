@@ -4,6 +4,7 @@ import { filterProducts, normalizeMoney } from "../public/lib/products.js";
 import { generateProductSeo } from "./prompt.js";
 import { boundedInteger, searchDomeggook, SourcingError } from "./sourcing.js";
 import { searchOwnerclan } from "./ownerclan.js";
+import { searchIdeaProducts } from "./ideaDiscovery.js";
 
 const jsonHeaders = {
   "Content-Type": "application/json; charset=utf-8",
@@ -77,6 +78,7 @@ export default {
       const routeMethods = {
         "/api/catalog": "GET",
         "/api/products": "GET",
+        "/api/idea-products": "GET",
         "/api/generate-seo": "POST",
         "/api/register-product": "POST",
       };
@@ -90,6 +92,14 @@ export default {
         return json({ ok: false, error: `${method} 요청만 지원합니다.` }, 405, {
           Allow: method,
         });
+      if (url.pathname === "/api/idea-products") {
+        try {
+          return json(searchIdeaProducts(url.searchParams));
+        } catch (error) {
+          throw new SourcingError(error.message, 400);
+        }
+      }
+
       if (url.pathname === "/api/catalog")
         return json({
           ok: true,
