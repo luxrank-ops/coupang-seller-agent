@@ -996,6 +996,93 @@ async function copyDraft() {
   }
 }
 
+async function copyForPickle() {
+  if (!$("editName").reportValidity() || !$("editName").value.trim()) return;
+  let estimate;
+  try {
+    estimate = getMargin();
+  } catch (error) {
+    toast(error.message);
+    return;
+  }
+  flushDraft();
+  const draft = state.drafts.get(state.activeProduct),
+    product = state.selected.get(state.activeProduct);
+  const text = [
+    "[피클 상품 등록 요청]",
+    "- 상품명: " + (draft.seoName.trim() || draft.name.trim()),
+    "- 소싱처: " + getSource(product).name + (productLink(product) ? " (" + productLink(product) + ")" : ""),
+    "- 도매원가: " + money(estimate.wholesalePrice) + " (배송비 " + money(estimate.wholesaleShipping) + ")",
+    "- 쿠팡 판매가: " + money(estimate.salePrice) + " (무료배송)",
+    "- 목표마진: " + estimate.marginRate + "% (예상 순수익 " + money(estimate.netProfit) + ")",
+    "- 검색 태그: " + (draft.tags || []).join(", "),
+    "- 핵심 소구점: " + (draft.points || []).join(" / "),
+    "- 반품배송비: 초도 10,000원 / 반품 10,000원 (왕복 20,000원)",
+    "위 조건으로 쿠팡 WING에 대행 등록해줘!",
+  ].join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("피클 비서 등록 요청문을 복사했어요! 피클 대화창에 붙여넣으시면 즉시 WING 등록을 진행합니다.");
+  } catch {
+    toast("복사 권한을 사용할 수 없습니다.");
+  }
+}
+
+function downloadWingCsv() {
+  if (!$("editName").reportValidity() || !$("editName").value.trim()) return;
+  let estimate;
+  try {
+    estimate = getMargin();
+  } catch (error) {
+    toast(error.message);
+    return;
+  }
+  flushDraft();
+  const draft = state.drafts.get(state.activeProduct),
+    product = state.selected.get(state.activeProduct);
+  const headers = [
+    "노출상품명",
+    "등록옵션명",
+    "판매가격",
+    "재고수량",
+    "출고소요일",
+    "택배사",
+    "배송비종류",
+    "기본배송비",
+    "반품배송비",
+    "초도반품배송비",
+    "대표이미지URL",
+    "검색어",
+    "상세설명",
+  ];
+  const row = [
+    draft.seoName.trim() || draft.name.trim(),
+    "단일상품",
+    estimate.salePrice,
+    "50",
+    "1",
+    "CJ대한통운",
+    "무료",
+    "0",
+    "10000",
+    "10000",
+    product.imageUrl || "",
+    (draft.tags || []).join(","),
+    draft.description || "",
+  ];
+  const csvContent =
+    "\uFEFF" +
+    [
+      headers.join(","),
+      row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","),
+    ].join("\n");
+  downloadFile(
+    csvContent,
+    `쿠팡WING_일괄등록_${(draft.name || "상품").slice(0, 15)}.csv`,
+  );
+  toast("쿠팡 WING 일괄등록용 CSV 파일을 다운로드했습니다.");
+}
+
 function downloadFile(content, filename) {
   const url = URL.createObjectURL(
     new Blob([content], { type: "text/csv;charset=utf-8;" }),
@@ -1380,6 +1467,8 @@ $("prepareForm").addEventListener("input", (event) => {
 });
 $("generateSeo").addEventListener("click", generateSeo);
 $("copyDraft").addEventListener("click", copyDraft);
+$("copyForPickle")?.addEventListener("click", copyForPickle);
+$("downloadWingCsv")?.addEventListener("click", downloadWingCsv);
 $("downloadTemplate").addEventListener("click", () =>
   downloadFile(CSV_TEMPLATE, "상품_가져오기_양식.csv"),
 );
