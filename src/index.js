@@ -140,73 +140,18 @@ export default {
         return response;
       }
       if (url.pathname === "/api/register-product") {
-        try {
-          const body = await readJson(request);
-          const accessKey = env.COUPANG_ACCESS_KEY || "6c1305f9-3253-4859-b94a-2c2536641167";
-          const secretKey = env.COUPANG_SECRET_KEY || "2d6ab9986cd3b15dc12b8209d6d65e503fb56fbf";
-          const vendorId = env.COUPANG_VENDOR_ID || "A01818224";
-
-          const now = new Date();
-          const pad = (n) => String(n).padStart(2, "0");
-          const yy = String(now.getUTCFullYear()).slice(-2);
-          const MM = pad(now.getUTCMonth() + 1);
-          const dd = pad(now.getUTCDate());
-          const hh = pad(now.getUTCHours());
-          const mm = pad(now.getUTCMinutes());
-          const ss = pad(now.getUTCSeconds());
-          const datetimeStr = `${yy}${MM}${dd}T${hh}${mm}${ss}Z`;
-
-          const method = "GET";
-          const path = "/v2/providers/seller_api/apis/api/v1/marketplace/seller-products";
-          const query = `vendorId=${vendorId}&page=1&maxPerPage=1`;
-          const message = datetimeStr + method + path + query;
-
-          const enc = new TextEncoder();
-          const key = await crypto.subtle.importKey(
-            "raw",
-            enc.encode(secretKey),
-            { name: "HMAC", hash: "SHA-256" },
-            false,
-            ["sign"]
-          );
-          const sigBuf = await crypto.subtle.sign("HMAC", key, enc.encode(message));
-          const signature = Array.from(new Uint8Array(sigBuf))
-            .map((b) => b.toString(16).padStart(2, "0"))
-            .join("");
-
-          const authHeader = `CEA algorithm=HmacSHA256, access-key=${accessKey}, signed-date=${datetimeStr}, signature=${signature}`;
-
-          const coupangRes = await fetch(
-            `https://api-gateway.coupang.com${path}?${query}`,
-            {
-              method: "GET",
-              headers: {
-                "Content-Type": "application/json;charset=UTF-8",
-                Authorization: authHeader,
-              },
-            }
-          );
-          const coupangData = await coupangRes.json().catch(() => ({}));
-
-          if (!coupangRes.ok) {
-            return json({
-              ok: false,
-              mode: "openapi_ip_restricted",
-              vendorId,
-              error: coupangData.message || "쿠팡 OpenAPI 서버 호출이 제한되었습니다.",
-              hint: "쿠팡 WING의 IP 화이트리스트 정책으로 인해 엣지 서버 IP 등록이 필요합니다. 대화창의 피클 비서 등록 대행이나 WING 일괄등록 CSV를 이용하시면 즉시 등록됩니다.",
-            }, coupangRes.status);
-          }
-
-          return json({
-            ok: true,
-            mode: "openapi_live",
-            vendorId,
-            message: "쿠팡 OpenAPI 연동이 정상 활성화되어 있습니다.",
-          });
-        } catch (err) {
-          return json({ ok: false, error: err.message }, 500);
-        }
+        // Never imply that product registration happened. This app does not
+        // implement Coupang's product-create contract; credentials alone are
+        // not sufficient to make a safe, correct registration integration.
+        return json(
+          {
+            ok: false,
+            mode: "not_connected",
+            error:
+              "쿠팡 상품 등록 API는 연결되어 있지 않습니다. 상품을 검토한 뒤 WING에서 직접 등록해주세요.",
+          },
+          501,
+        );
       }
       const body = await readJson(request);
       if (
