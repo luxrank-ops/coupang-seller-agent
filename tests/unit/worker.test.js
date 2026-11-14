@@ -365,7 +365,7 @@ test("WING registration forwards the real Coupang answer and never fabricates su
     assert.ok(rejected.calls[0].url.includes("api-gateway.coupang.com"));
     assert.match(
       rejected.calls[0].init.headers.Authorization,
-      /^CEA algorithm=HmacSHA256, access-key=access, signed-date=\d{6}T\d{6}Z, signature=/,
+      /^CEA algorithm=HmacSHA256, access-key=access, signed-date=\d{6}T\d{6}Z, signature=[0-9a-f]{64}$/,
     );
   } finally {
     rejected.restore();

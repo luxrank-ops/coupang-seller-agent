@@ -1,8 +1,8 @@
 /**
  * 쿠팡 WING Open API 클라이언트.
  *
- * 서명 방식(쿠팡 문서): message = signed-date + method + path + query(‘?’ 제외),
- * signature = base64(HMAC-SHA256(secretKey, message)).
+ * 서명 방식(쿠팡 문서·공식 예제): message = signed-date + method + path + query(‘?’ 제외),
+ * signature = HMAC-SHA256(secretKey, message)의 **16진수 문자열**(hexdigest).
  * Authorization: CEA algorithm=HmacSHA256, access-key=…, signed-date=…, signature=…
  *
  * 주의: 쿠팡 Open API는 WING > 판매자정보 > 추가판매정보에 등록한 IP에서만 호출된다.
@@ -37,7 +37,7 @@ function signedDate() {
   );
 }
 
-async function hmacBase64(secret, message) {
+async function hmacHex(secret, message) {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -50,10 +50,9 @@ async function hmacBase64(secret, message) {
     key,
     new TextEncoder().encode(message),
   );
-  let binary = "";
-  for (const byte of new Uint8Array(signature))
-    binary += String.fromCharCode(byte);
-  return btoa(binary);
+  return [...new Uint8Array(signature)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 export function wingConfigured(env = {}) {
@@ -76,7 +75,7 @@ export async function callWing(
     );
   const datetime = signedDate();
   const message = datetime + method + path + query;
-  const signature = await hmacBase64(env.WING_SECRET_KEY, message);
+  const signature = await hmacHex(env.WING_SECRET_KEY, message);
   const authorization =
     `CEA algorithm=HmacSHA256, access-key=${env.WING_ACCESS_KEY}, ` +
     `signed-date=${datetime}, signature=${signature}`;
