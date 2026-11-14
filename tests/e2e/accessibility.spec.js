@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { makeCsv } from "../../public/lib/csv.js";
+import { mockApis } from "./fixtures.js";
 
 async function expectAccessible(page) {
   await page.evaluate(() => document.fonts.ready);
@@ -65,6 +66,7 @@ async function expectFontSize(page, selector, minimum) {
 }
 
 test.beforeEach(async ({ page }) => {
+  await mockApis(page);
   await page.goto("/");
   await expect(page.locator(".product-card")).toHaveCount(12);
 });

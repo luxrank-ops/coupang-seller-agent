@@ -5,7 +5,7 @@ import {
   loadWorkspace,
   saveWorkspace,
 } from "../../public/lib/storage.js";
-import { DEMO_PRODUCTS } from "../../src/catalog.js";
+import { DEMO_PRODUCTS } from "../fixtures/demo-products.js";
 
 const state = () => ({
   favorites: new Map([[DEMO_PRODUCTS[0].id, DEMO_PRODUCTS[0]]]),

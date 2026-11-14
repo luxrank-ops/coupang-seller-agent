@@ -129,3 +129,23 @@ export function sourceSearchUrl(source, query = "") {
 export function categoryName(id) {
   return CATEGORIES.find((category) => category.id === id)?.name || "기타";
 }
+
+/** 실시간 검색이 연동된 소싱처 (서버 API 연동 상태는 /api/catalog의 integrations 참고). */
+export const API_SOURCES = ["domeggook", "ownerclan"];
+
+export const DEFAULT_QUERY = "수납";
+
+/**
+ * 첫 화면에 보여줄 실제 검색어 프리셋.
+ * 분류가 아니라 도매꾹에서 실제로 검색되는 키워드이며, 누르면 그 키워드로 실시간 조회한다.
+ */
+export const KEYWORDS = [
+  { id: "storage", name: "수납·정리", q: "수납", icon: "box" },
+  { id: "kitchen", name: "주방용품", q: "주방", icon: "utensils" },
+  { id: "pet", name: "반려동물", q: "반려동물", icon: "paw" },
+  { id: "outdoor", name: "캠핑·레저", q: "캠핑", icon: "tent" },
+  { id: "car", name: "차량용품", q: "차량", icon: "car" },
+  { id: "office", name: "문구·사무", q: "문구", icon: "pencil" },
+  { id: "fashion", name: "패션·잡화", q: "가방", icon: "bag" },
+  { id: "garden", name: "원예·공구", q: "공구", icon: "sprout" },
+];

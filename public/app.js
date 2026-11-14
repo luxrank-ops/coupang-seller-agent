@@ -2,6 +2,8 @@ import {
   SOURCES,
   CATEGORIES,
   FULFILLMENTS,
+  KEYWORDS,
+  DEFAULT_QUERY,
   getSource,
   sourceSearchUrl,
   categoryName,
@@ -46,13 +48,13 @@ const state = {
     ? location.hash.slice(1)
     : "discover",
   mode: saved.mode,
+  source: urlParams.get("source") === "ownerclan" ? "ownerclan" : "domeggook",
   query: (urlParams.get("q") || "").slice(0, 100),
   category: CATEGORIES.some(
     (category) => category.id === urlParams.get("category"),
   )
     ? urlParams.get("category")
     : "all",
-  products: [],
   imported: saved.imported,
   liveProducts: [],
   favorites: new Map(saved.favorites.map((product) => [product.id, product])),
@@ -61,13 +63,21 @@ const state = {
   drafts: new Map(Object.entries(saved.drafts)),
   page: 1,
   loading: true,
-  catalogError: "",
   liveError: "",
   liveQuery: "",
   livePage: 0,
   liveHasMore: false,
+  liveCursor: null,
+  liveTotal: null,
   liveLoading: false,
-  integrations: { domeggook: false, seo: false, wing: false },
+  integrations: { domeggook: false, ownerclan: false, seo: false, wing: false },
+  wing: {},
+  keywords: KEYWORDS,
+  detail: null,
+  detailError: "",
+  detailLoading: false,
+  registerResult: null,
+  registerLoading: false,
   activeProduct: saved.selected[0]?.id || null,
   pendingImport: null,
   storageFailed: saved.warning,
@@ -82,12 +92,7 @@ let toastTimer,
 hydrateIcons();
 $("searchInput").value = state.query;
 $("dataMode").value = state.mode;
-$("sourceFilter").innerHTML =
-  '<option value="all">전체 소싱처</option>' +
-  SOURCES.map(
-    (source) => `<option value="${source.id}">${source.name}</option>`,
-  ).join("") +
-  '<option value="other">기타 공급사</option>';
+renderSourceFilter();
 if (
   SOURCES.some((source) => source.id === urlParams.get("source")) ||
   urlParams.get("source") === "other"
@@ -137,16 +142,12 @@ function closeSidebar() {
 
 function currentProducts() {
   if (state.view === "favorites") return [...state.favorites.values()];
-  return state.mode === "demo"
-    ? state.products
-    : state.mode === "imported"
-      ? state.imported
-      : state.liveProducts;
+  return state.mode === "imported" ? state.imported : state.liveProducts;
 }
 
 function findProduct(id) {
   return (
-    [...state.products, ...state.imported, ...state.liveProducts].find(
+    [...state.imported, ...state.liveProducts].find(
       (product) => product.id === id,
     ) ||
     state.selected.get(id) ||
@@ -156,15 +157,16 @@ function findProduct(id) {
 }
 
 function filters() {
+  const live = state.mode === "live";
   return {
     q: state.query,
-    category: state.category,
-    source: $("sourceFilter").value,
+    category: live ? "all" : state.category,
+    source: live ? "all" : $("sourceFilter").value,
     minPrice: $("minPrice").value,
     maxPrice: $("maxPrice").value,
     freeShipping: $("freeShipping").checked,
     singleOrder: $("singleOrder").checked,
-    consignment: $("consignment").checked,
+    consignment: live ? false : $("consignment").checked,
     sort: $("sortOrder").value,
   };
 }
@@ -245,13 +247,7 @@ function renderNotice() {
   if (state.view === "favorites") {
     notice.innerHTML =
       icon("info") +
-      "<p>이 브라우저에 저장한 관심 상품입니다. 각 상품의 <strong>예시 / 직접 추가 / CSV / API</strong> 구분을 확인하세요. 가격·재고는 자동 동기화되지 않습니다.</p>";
-  } else if (state.mode === "demo") {
-    notice.innerHTML =
-      icon("info") +
-      '<p>기능 체험용 <strong>예시 상품</strong>입니다. 실제 도매몰 상품·공급가·재고가 아닙니다.</p><button data-action="import-open">실제 상품 가져오기 ' +
-      icon("arrow-right") +
-      "</button>";
+      "<p>이 브라우저에 저장한 관심 상품입니다. 실시간 조회·직접 추가·CSV 구분을 확인하세요. 가격·재고는 자동 동기화되지 않습니다.</p>";
   } else if (state.mode === "imported") {
     notice.classList.add("imported");
     notice.innerHTML =
@@ -264,13 +260,25 @@ function renderNotice() {
         : "");
   } else {
     notice.classList.add("live");
+    const name = state.source === "ownerclan" ? "오너클랜" : "도매꾹";
     notice.innerHTML =
       icon("info") +
-      "<p><strong>도매꾹 API 조회</strong>입니다. 배송비·MOQ·재고는 원문에서 확인하세요. 필터는 <strong>불러온 상품에만</strong> 적용됩니다. 조회 결과는 최대 60초 캐시됩니다.</p>";
+      `<p><strong>${name} 실시간 조회</strong> 결과입니다. 공급가·최소주문·배송비는 API 응답값이며, 옵션별 조건과 재고는 상품 상세에서 확인하세요.</p><button data-action="sources-open">다른 도매몰 바로가기 ` +
+      icon("arrow-right") +
+      "</button>";
   }
 }
 
 function renderCategories(base, active) {
+  if (state.mode === "live") {
+    $("categoryFilters").innerHTML = state.keywords
+      .map(
+        (keyword) =>
+          `<button type="button" class="category-option ${keyword.q === state.query ? "active" : ""}" data-keyword="${esc(keyword.q)}" aria-pressed="${keyword.q === state.query}">${icon(keyword.icon)}${esc(keyword.name)}</button>`,
+      )
+      .join("");
+    return;
+  }
   const products = filterProducts(base, { ...active, category: "all" });
   $("categoryFilters").innerHTML = CATEGORIES.map((category) => {
     const count =
@@ -350,9 +358,7 @@ function renderEmpty(priceValid) {
     !state.liveQuery &&
     !state.liveError
   )
-    return `${icon("search")}<h2>도매꾹에서 어떤 상품을 찾을까요?</h2><p>위 검색창에 키워드를 입력하고 상품 검색을 눌러주세요.<br>배송비·최소 주문 수량은 상품 원문에서 확인해야 합니다.</p>`;
-  if (state.view === "discover" && state.mode === "demo" && state.catalogError)
-    return `${icon("info")}<h2>상품을 불러오지 못했어요</h2><p>네트워크를 확인한 뒤 다시 시도해주세요.<br>도매몰 외부 검색과 CSV 가져오기는 계속 이용할 수 있어요.</p><button class="button button-secondary" data-action="retry">다시 시도</button>`;
+    return `${icon("search")}<h2>도매꾹에서 어떤 상품을 찾을까요?</h2><p>위 검색창에 키워드를 입력하고 상품 검색을 눌러주세요.<br>배송비·최소 주문 수량은 상품 상세에서 확인할 수 있습니다.</p>`;
   const q = active.q
     ? `“${esc(active.q)}”에 맞는 상품이 없어요`
     : "조건에 맞는 상품이 없어요";
@@ -368,37 +374,33 @@ function renderCatalog() {
   renderCategories(base, active);
   renderNotice();
   renderActiveFilters(active);
+  const sourceName =
+    state.source === "ownerclan" ? "오너클랜" : "도매꾹";
   $("resultsHeading").textContent =
     state.view === "favorites"
       ? "나의 관심 상품"
       : state.mode === "imported"
         ? "가져온 상품"
-        : state.mode === "live"
-          ? "도매꾹 조회 상품"
-          : "상품 둘러보기";
+        : sourceName + " 실시간 조회";
   $("resultsCount").textContent = state.liveLoading
     ? "조회 중…"
     : state.mode === "live" && state.view === "discover"
-      ? `${products.length}개 / 불러온 ${base.length}개`
+      ? `${products.length}개 표시 · ${base.length}개 불러옴` +
+        (state.liveTotal
+          ? ` / 전체 약 ${state.liveTotal.toLocaleString("ko-KR")}건`
+          : "")
       : `${products.length}개`;
   const error =
-    state.view === "discover"
-      ? state.mode === "live"
-        ? state.liveError
-        : state.mode === "demo"
-          ? state.catalogError
-          : ""
-      : "";
+    state.view === "discover" && state.mode === "live" ? state.liveError : "";
   $("catalogError").hidden = !error;
   $("catalogError").innerHTML = error
     ? esc(error) + '<button data-action="retry">다시 시도</button>'
     : "";
   const loading =
-    (state.loading && state.view === "discover" && state.mode === "demo") ||
-    (state.liveLoading &&
-      !base.length &&
-      state.mode === "live" &&
-      state.view === "discover");
+    state.liveLoading &&
+    !base.length &&
+    state.mode === "live" &&
+    state.view === "discover";
   if (loading) {
     $("productGrid").innerHTML =
       '<div class="loading-state"><span class="spinner"></span>상품을 불러오고 있어요</div>';
@@ -601,8 +603,114 @@ function showProduct(id, open = true) {
     favorite = state.favorites.has(id);
   const link = productLink(product);
   $("productDialogContent").innerHTML =
-    `<div class="product-detail-top"><span>${categoryName(product.categoryId)} · ${kindLabel(product)} 상품</span><button class="icon-button" data-close="productDialog" aria-label="상품 상세 닫기">${icon("x")}</button></div><div class="product-detail-body"><div class="detail-art">${productVisual(product)}</div><div class="detail-data"><div class="product-source"><span class="source-mini-dot"></span>${esc(source.name)}${product.dataKind === "demo" ? " · 소싱처 예시" : ""}</div><h2 id="productDialogTitle">${esc(product.name)}</h2><div class="detail-price">${money(product.wholesalePrice)} <small>${product.dataKind === "demo" ? "예시 공급가" : "공급가"}</small></div><dl class="detail-terms"><dt>공급사 배송비</dt><dd>${money(product.shippingFee)}</dd><dt>최소 주문 수량</dt><dd>${product.minOrder === null ? "확인 필요" : product.minOrder.toLocaleString("ko-KR") + "개"}</dd><dt>판매 방식</dt><dd>${FULFILLMENTS[product.fulfillment] || "확인 필요"}</dd><dt>상품코드</dt><dd>${esc(product.sku || "미입력")}</dd><dt>재고·판매 권한</dt><dd>공급사 확인 필요</dd></dl><p class="detail-description">${esc(product.description || "상품의 구성과 거래 조건은 공급사에서 확인하세요.")}</p></div></div><div class="detail-bottom"><div class="detail-estimate"><span>${estimate ? "권장 판매가 " + money(estimate.salePrice) : "공급가·배송비 확인 후 계산 가능"}</span>${estimate ? "<strong>예상 이익 +" + money(estimate.netProfit) + "</strong>" : ""}</div><p class="form-hint">목표마진 30%·수수료 10.8%, 1개 판매 기준 추정. 부가세 정산·광고·반품비 등 제외.</p>${product.dataKind === "demo" ? '<div class="inline-warning">기능 체험용 예시입니다. 해당 도매몰의 실제 취급 상품·가격·재고가 아닙니다. 아래 링크는 실제 상품 원문이 아닌 유사 상품 키워드 검색입니다.</div>' : '<div class="inline-warning">공급가·배송비·MOQ·재고와 이미지 사용 권한, 법정 인증 등 판매 요건을 최종 확인하세요. API·CSV 정보는 자동 동기화되지 않습니다.</div>'}<div class="detail-footer">${link ? `<a class="button button-secondary" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${product.dataKind === "demo" || !product.url ? "도매몰에서 유사 상품 찾기" : "공급사 상품 원문 보기"} ${icon("arrow-up-right")}</a>` : ""}<button class="button button-secondary" data-action="favorite" data-id="${esc(id)}" aria-pressed="${favorite}">${icon("heart")}${favorite ? "관심 저장됨" : "관심 상품"}</button><button class="button ${selected ? "button-secondary is-selected" : "button-primary"}" data-action="select" data-id="${esc(id)}" aria-pressed="${selected}">${icon(selected ? "check" : "plus")}${selected ? "선택 해제" : "판매 후보로 선택"}</button></div></div>`;
+    `<div class="product-detail-top"><span>${categoryName(product.categoryId)} · ${kindLabel(product)} 상품</span><button class="icon-button" data-close="productDialog" aria-label="상품 상세 닫기">${icon("x")}</button></div><div class="product-detail-body"><div class="detail-art">${productVisual(product)}</div><div class="detail-data"><div class="product-source"><span class="source-mini-dot"></span>${esc(source.name)}${product.dataKind === "demo" ? " · 소싱처 예시" : ""}</div><h2 id="productDialogTitle">${esc(product.name)}</h2><div class="detail-price">${money(product.wholesalePrice)} <small>${product.dataKind === "demo" ? "예시 공급가" : "공급가"}</small></div><dl class="detail-terms"><dt>공급사 배송비</dt><dd>${money(product.shippingFee)}</dd><dt>최소 주문 수량</dt><dd>${product.minOrder === null ? "확인 필요" : product.minOrder.toLocaleString("ko-KR") + "개"}</dd><dt>판매 방식</dt><dd>${FULFILLMENTS[product.fulfillment] || "확인 필요"}</dd><dt>상품코드</dt><dd>${esc(product.sku || "미입력")}</dd><dt>재고·판매 권한</dt><dd>공급사 확인 필요</dd></dl><p class="detail-description">${esc(product.description || "상품의 구성과 거래 조건은 공급사에서 확인하세요.")}</p></div></div><div id="detailLive" class="detail-live"></div><div class="detail-bottom"><div class="detail-estimate"><span>${estimate ? "권장 판매가 " + money(estimate.salePrice) : "공급가·배송비 확인 후 계산 가능"}</span>${estimate ? "<strong>예상 이익 +" + money(estimate.netProfit) + "</strong>" : ""}</div><p class="form-hint">목표마진 30%·수수료 10.8%, 1개 판매 기준 추정. 부가세 정산·광고·반품비 등 제외.</p>${product.dataKind === "demo" ? '<div class="inline-warning">기능 체험용 예시입니다. 해당 도매몰의 실제 취급 상품·가격·재고가 아닙니다. 아래 링크는 실제 상품 원문이 아닌 유사 상품 키워드 검색입니다.</div>' : '<div class="inline-warning">공급가·배송비·MOQ·재고와 이미지 사용 권한, 법정 인증 등 판매 요건을 최종 확인하세요. API·CSV 정보는 자동 동기화되지 않습니다.</div>'}<div class="detail-footer">${link ? `<a class="button button-secondary" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${product.dataKind === "demo" || !product.url ? "도매몰에서 유사 상품 찾기" : "공급사 상품 원문 보기"} ${icon("arrow-up-right")}</a>` : ""}<button class="button button-secondary" data-action="favorite" data-id="${esc(id)}" aria-pressed="${favorite}">${icon("heart")}${favorite ? "관심 저장됨" : "관심 상품"}</button><button class="button ${selected ? "button-secondary is-selected" : "button-primary"}" data-action="select" data-id="${esc(id)}" aria-pressed="${selected}">${icon(selected ? "check" : "plus")}${selected ? "선택 해제" : "판매 후보로 선택"}</button></div></div>`;
   if (open) openDialog("productDialog");
+  if (product.dataKind === "live" && product.sourceId === "domeggook")
+    loadDetail(product);
+}
+
+function detailRow(label, value) {
+  return value === null || value === undefined || value === ""
+    ? ""
+    : `<span>${esc(label)}</span><strong>${esc(value)}</strong>`;
+}
+
+function renderDetail(detail) {
+  const box = $("detailLive");
+  if (!box) return;
+  if (!detail) {
+    box.innerHTML = "";
+    return;
+  }
+  const rows = [
+    detailRow("판매 상태", detail.status),
+    detailRow(
+      "재고",
+      detail.inventory === null ? null : detail.inventory.toLocaleString("ko-KR") + "개",
+    ),
+    detailRow(
+      "도매 MOQ",
+      detail.moq === null ? null : detail.moq.toLocaleString("ko-KR") + "개",
+    ),
+    detailRow("배송 방식", detail.delivery?.method),
+    detailRow("배송비 부담", detail.delivery?.pay),
+    detailRow(
+      "배송비",
+      detail.delivery?.fee === null || detail.delivery?.fee === undefined
+        ? null
+        : detail.delivery.fee.toLocaleString("ko-KR") + "원",
+    ),
+    detailRow(
+      "제주/도서 추가비",
+      detail.delivery?.jejuExtra || detail.delivery?.islandExtra
+        ? `${(detail.delivery.jejuExtra || 0).toLocaleString("ko-KR")}원 / ${(detail.delivery.islandExtra || 0).toLocaleString("ko-KR")}원`
+        : null,
+    ),
+    detailRow(
+      "도매꾹 카테고리",
+      [detail.category?.name, detail.category?.code]
+        .filter(Boolean)
+        .join(" · "),
+    ),
+    detailRow("원산지", detail.detail?.origin),
+    detailRow("제조사", detail.detail?.manufacturer),
+    detailRow("모델명", detail.detail?.model),
+    detailRow("판매자", [detail.seller?.nick, detail.seller?.company].filter(Boolean).join(" · ")),
+    detailRow(
+      "반품 배송비",
+      detail.returnInfo?.fee === null || detail.returnInfo?.fee === undefined
+        ? null
+        : detail.returnInfo.fee.toLocaleString("ko-KR") +
+          "원" +
+          (detail.returnInfo.feeDouble ? " (왕복)" : ""),
+    ),
+    detailRow("반품지", detail.returnInfo?.address),
+  ]
+    .filter(Boolean)
+    .join("");
+  const options = (detail.options || [])
+    .map(
+      (option) =>
+        `<li><span>${esc(option.name || "옵션")}</span>${option.values.map((value) => `<em>${esc(value)}</em>`).join("")}</li>`,
+    )
+    .join("");
+  box.innerHTML =
+    '<div class="detail-live-heading"><strong>도매꾹 상세정보 API</strong><small>' +
+    (detail.capturedAt ? esc(detail.capturedAt.slice(0, 19).replace("T", " ")) + " 조회" : "") +
+    "</small></div>" +
+    (rows ? `<div class="detail-live-grid">${rows}</div>` : "") +
+    (options
+      ? `<div class="detail-live-options"><span>옵션 구성</span><ul>${options}</ul></div>`
+      : "") +
+    (detail.imageLicence
+      ? `<p class="detail-live-note">이미지 사용: ${esc(detail.imageLicence)}</p>`
+      : "") +
+    (detail.keywords?.length
+      ? `<p class="detail-live-note">판매자 키워드: ${detail.keywords.slice(0, 10).map(esc).join(", ")}</p>`
+      : "");
+}
+
+async function loadDetail(product) {
+  const box = $("detailLive");
+  if (!box) return;
+  box.innerHTML =
+    '<div class="detail-live-heading"><span class="spinner"></span>도매꾹 상세정보를 불러오는 중…</div>';
+  try {
+    const no = product.sku || String(product.id).replace("live-domeggook-", "");
+    const response = await fetch(
+      "/api/item-detail?source=domeggook&no=" + encodeURIComponent(no),
+      { signal: AbortSignal.timeout(15000) },
+    );
+    const data = await response.json();
+    if (!response.ok || !data.ok)
+      throw new Error(data.error || "상세 정보를 불러오지 못했습니다.");
+    if ($("productDialog").dataset.product !== product.id) return;
+    state.detail = data;
+    renderDetail(data);
+  } catch (error) {
+    if ($("productDialog").dataset.product !== product.id) return;
+    box.innerHTML = `<div class="detail-live-heading">상세 정보를 불러오지 못했습니다: ${esc(error.message)}</div>`;
+  }
 }
 
 function refreshOpenDialogs() {
@@ -630,40 +738,70 @@ function renderComparison() {
     )}${row("원문·판매 후보", (product) => `${productLink(product) ? `<a class="button button-secondary" href="${esc(productLink(product))}" target="_blank" rel="noopener noreferrer">${product.dataKind === "demo" ? "유사 상품 찾기" : "공급사 확인"} ${icon("arrow-up-right")}</a><br>` : ""}<button class="button ${state.selected.has(product.id) ? "button-secondary" : "button-primary"}" data-action="select" data-id="${esc(product.id)}" aria-pressed="${state.selected.has(product.id)}">${icon(state.selected.has(product.id) ? "check" : "plus")}${state.selected.has(product.id) ? "선택 해제" : "판매 후보 선택"}</button>`)}</tbody></table>`;
 }
 
-async function loadCatalog() {
-  state.loading = true;
-  state.catalogError = "";
-  renderCatalog();
+async function loadMeta() {
   try {
     const response = await fetch("/api/catalog", {
       signal: AbortSignal.timeout(12000),
     });
     const data = await response.json();
-    if (
-      !response.ok ||
-      !data.ok ||
-      !Array.isArray(data.products) ||
-      !data.products.every(isStoredProduct)
-    )
-      throw new Error("catalog");
-    state.products = data.products;
-    state.integrations = data.integrations || state.integrations;
-    $("demoTotal").textContent = state.products.length;
-    const option = $("dataMode").querySelector('[value="live"]');
-    option.disabled = !state.integrations.domeggook;
-    option.textContent = state.integrations.domeggook
-      ? "도매꾹 API 조회"
-      : "도매꾹 API · 미연결";
-    if (state.integrations.domeggook)
-      $("apiStatus").innerHTML =
-        "<strong>도매꾹 OpenAPI 연결됨</strong> — 상품 데이터에서 ‘도매꾹 API 조회’를 선택한 뒤 키워드로 실시간 목록을 검색하세요. 배송비·MOQ·재고는 별도로 확인해야 합니다.";
+    if (!response.ok || !data.ok) throw new Error("catalog");
+    state.integrations = { ...state.integrations, ...(data.integrations || {}) };
+    if (Array.isArray(data.keywords) && data.keywords.length)
+      state.keywords = data.keywords;
+    if (data.wing) state.wing = data.wing;
   } catch {
-    state.catalogError =
-      "기본 카탈로그를 불러오지 못했습니다. 네트워크를 확인해주세요.";
+    state.integrations = state.integrations || {};
   } finally {
     state.loading = false;
+    renderSourceFilter();
+    renderIntegrationStatus();
     renderCatalog();
   }
+}
+
+function renderIntegrationStatus() {
+  const chips = [];
+  const add = (label, ok, extra) =>
+    chips.push(
+      `<span class="integration-chip ${ok ? "is-on" : "is-off"}">${icon(ok ? "check" : "x")}${esc(label)}${extra ? `<small>${esc(extra)}</small>` : ""}</span>`,
+    );
+  add("도매꾹 실시간 조회", state.integrations.domeggook);
+  add(
+    "오너클랜 판매사 API",
+    state.integrations.ownerclan,
+    state.integrations.ownerclan ? "" : "인증 정보 필요",
+  );
+  add(
+    "쿠팡 WING 등록",
+    state.integrations.wing,
+    state.integrations.wing ? "" : "키 미설정",
+  );
+  add("AI 초안", state.integrations.seo, state.integrations.seo ? "" : "키 미설정");
+  const consignmentLabel = $("consignment")?.closest("label");
+  if (consignmentLabel)
+    consignmentLabel.classList.toggle("is-hidden", state.mode === "live");
+  $("apiStatus").innerHTML =
+    '<div class="integration-row">' +
+    chips.join("") +
+    '</div><p class="integration-help">도매꾹 Open API 4.1/4.6으로 상품 목록·상세를 실제 조회합니다. 연결되지 않은 소싱처는 결과에 섞이지 않습니다.</p>';
+}
+
+function renderSourceFilter() {
+  const select = $("sourceFilter");
+  if (state.mode === "live") {
+    select.innerHTML =
+      '<option value="domeggook">도매꾹 (실시간 API)</option>' +
+      `<option value="ownerclan"${state.integrations.ownerclan ? "" : " disabled"}>오너클랜${state.integrations.ownerclan ? " (실시간 API)" : " · 미연결"}</option>`;
+    select.value = state.source;
+    select.closest(".filter-group")?.classList.remove("is-hidden");
+    return;
+  }
+  select.innerHTML =
+    '<option value="all">전체 소싱처</option>' +
+    SOURCES.map(
+      (source) => `<option value="${source.id}">${source.name}</option>`,
+    ).join("") +
+    '<option value="other">기타 공급사</option>';
 }
 
 function cancelLive() {
@@ -672,9 +810,20 @@ function cancelLive() {
   state.liveLoading = false;
 }
 
+function sourceLabel(source = state.source) {
+  return source === "ownerclan" ? "오너클랜" : "도매꾹";
+}
+
 async function searchLive(append = false) {
-  if (!state.integrations.domeggook) {
-    state.liveError = "도매꾹 API가 연결되지 않았습니다.";
+  const source = state.source;
+  const available =
+    source === "ownerclan"
+      ? state.integrations.ownerclan
+      : state.integrations.domeggook;
+  if (!available) {
+    state.liveError =
+      sourceLabel() + " API가 연결되지 않았습니다. 서버 설정을 확인해주세요.";
+    state.liveProducts = [];
     renderCatalog();
     return;
   }
@@ -685,6 +834,7 @@ async function searchLive(append = false) {
     state.liveQuery = "";
     state.liveError = "";
     state.liveHasMore = false;
+    state.liveTotal = null;
     renderCatalog();
     return;
   }
@@ -696,26 +846,39 @@ async function searchLive(append = false) {
     state.livePage = 0;
     state.liveQuery = "";
     state.liveHasMore = false;
+    state.liveCursor = null;
+    state.liveTotal = null;
     state.page = 1;
   }
   state.liveLoading = true;
   state.liveError = "";
   renderCatalog();
   try {
+    const active = filters();
     const params = new URLSearchParams({
       mode: "live",
+      source,
       q: query,
+      pageSize: "40",
       page: String(append ? state.livePage + 1 : 1),
     });
+    if (source === "ownerclan") {
+      params.delete("page");
+      if (append && state.liveCursor) params.set("cursor", state.liveCursor);
+    }
+    if (/^\d+$/.test(active.minPrice)) params.set("minPrice", active.minPrice);
+    if (/^\d+$/.test(active.maxPrice)) params.set("maxPrice", active.maxPrice);
+    if (active.singleOrder) params.set("singleOrder", "true");
+    if (active.freeShipping) params.set("freeShipping", "true");
     const response = await fetch("/api/products?" + params, {
       signal: AbortSignal.any([
         liveController.signal,
-        AbortSignal.timeout(12000),
+        AbortSignal.timeout(20000),
       ]),
     });
     const data = await response.json();
     if (!response.ok || !data.ok)
-      throw new Error(data.error || "도매꾹 상품을 조회하지 못했습니다.");
+      throw new Error(data.error || sourceLabel() + " 상품을 조회하지 못했습니다.");
     if (!Array.isArray(data.products) || !data.products.every(isStoredProduct))
       throw new Error("상품 응답 형식이 올바르지 않습니다.");
     if (
@@ -732,18 +895,27 @@ async function searchLive(append = false) {
         ).map((product) => [product.id, product]),
       ).values(),
     ];
-    state.livePage = data.page;
+    state.livePage = data.page || 1;
     state.liveQuery = query;
     state.liveHasMore = Boolean(data.hasMore);
+    state.liveCursor = data.nextCursor || null;
+    state.liveTotal = Number.isFinite(data.total) ? data.total : null;
+    state.liveNote = data.note || "";
   } catch (error) {
     if (requestId === liveRequestId && error.name !== "AbortError")
-      state.liveError = error.message || "도매꾹에 연결하지 못했습니다.";
+      state.liveError = error.message || sourceLabel() + "에 연결하지 못했습니다.";
   } finally {
     if (requestId === liveRequestId) {
       state.liveLoading = false;
       renderCatalog();
     }
   }
+}
+
+function refreshLive() {
+  if (state.mode === "live" && state.view === "discover" && state.query)
+    searchLive();
+  else renderCatalog();
 }
 
 function applySearch() {
@@ -754,7 +926,6 @@ function applySearch() {
   if (state.mode === "live" && state.view === "discover") searchLive();
   else renderCatalog();
 }
-
 function stopSeo() {
   seoRequestId++;
   seoController?.abort();
@@ -893,6 +1064,7 @@ function renderPreparation() {
     : "이 브라우저에 자동 저장";
   renderSeoOutput(draft);
   renderMargin();
+  renderRegisterResult();
 }
 
 async function generateSeo() {
@@ -984,7 +1156,7 @@ async function copyDraft() {
     "검색 태그: " + (draft.tags || []).join(", "),
     "상품 설명: " + draft.description,
     "공급사 확인 링크: " + productLink(product),
-    "실제 쿠팡 등록·주문은 실행되지 않았습니다.",
+    "쿠팡 등록은 ‘쿠팡 WING에 등록 실행’ 또는 ‘피클 비서에게 등록 요청’으로 진행합니다.",
   ].join("\n");
   try {
     await navigator.clipboard.writeText(text);
@@ -1012,7 +1184,9 @@ async function copyForPickle() {
     "[피클 상품 등록 요청]",
     "- 상품명: " + (draft.seoName.trim() || draft.name.trim()),
     "- 소싱처: " + getSource(product).name + (productLink(product) ? " (" + productLink(product) + ")" : ""),
+    "- 상품코드: " + (product.sku || "미확인"),
     "- 도매원가: " + money(estimate.wholesalePrice) + " (배송비 " + money(estimate.wholesaleShipping) + ")",
+    "- 최소주문: " + (product.minOrder ?? "확인 필요") + "개 / 재고: " + (state.detail?.no === product.sku && state.detail?.inventory !== null ? state.detail.inventory + "개" : "상세 확인"),
     "- 쿠팡 판매가: " + money(estimate.salePrice) + " (무료배송)",
     "- 목표마진: " + estimate.marginRate + "% (예상 순수익 " + money(estimate.netProfit) + ")",
     "- 검색 태그: " + (draft.tags || []).join(", "),
@@ -1028,60 +1202,153 @@ async function copyForPickle() {
   }
 }
 
-function downloadWingCsv() {
-  if (!$("editName").reportValidity() || !$("editName").value.trim()) return;
-  let estimate;
-  try {
-    estimate = getMargin();
-  } catch (error) {
-    toast(error.message);
-    return;
-  }
-  flushDraft();
+function noticeTemplate(kind, product, detail) {
+  const model = detail?.detail?.model || product.sku || product.name;
+  const maker = detail?.detail?.manufacturer || getSource(product).name;
+  const origin = detail?.detail?.origin || "상세설명 참조";
+  const base = [
+    { categoryName: kind, detailName: "품명 및 모델명", content: model },
+    { categoryName: kind, detailName: "제조자/수입자", content: maker },
+    { categoryName: kind, detailName: "제조국", content: origin },
+    {
+      categoryName: kind,
+      detailName: "A/S 책임자와 전화번호",
+      content: "아모가 010-2846-8906",
+    },
+  ];
+  if (kind === "패션잡화")
+    base.push({
+      categoryName: kind,
+      detailName: "크기",
+      content: detail?.detail?.size || "상세설명 참조",
+    });
+  return base;
+}
+
+function registrationInput() {
   const draft = state.drafts.get(state.activeProduct),
     product = state.selected.get(state.activeProduct);
-  const headers = [
-    "노출상품명",
-    "등록옵션명",
-    "판매가격",
-    "재고수량",
-    "출고소요일",
-    "택배사",
-    "배송비종류",
-    "기본배송비",
-    "반품배송비",
-    "초도반품배송비",
-    "대표이미지URL",
-    "검색어",
-    "상세설명",
-  ];
-  const row = [
-    draft.seoName.trim() || draft.name.trim(),
-    "단일상품",
-    estimate.salePrice,
-    "50",
-    "1",
-    "CJ대한통운",
-    "무료",
-    "0",
-    "10000",
-    "10000",
-    product.imageUrl || "",
-    (draft.tags || []).join(","),
-    draft.description || "",
-  ];
-  const csvContent =
-    "\uFEFF" +
-    [
-      headers.join(","),
-      row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","),
-    ].join("\n");
-  downloadFile(
-    csvContent,
-    `쿠팡WING_일괄등록_${(draft.name || "상품").slice(0, 15)}.csv`,
-  );
-  toast("쿠팡 WING 일괄등록용 CSV 파일을 다운로드했습니다.");
+  if (!draft || !product) throw new Error("판매 후보를 먼저 선택해주세요.");
+  const estimate = getMargin();
+  const detail =
+    state.detail && state.detail.no === (product.sku || "")
+      ? state.detail
+      : null;
+  const images = [];
+  for (const url of [product.imageUrl, detail?.image]) {
+    if (url && !images.includes(url)) images.push(url);
+  }
+  return {
+    product,
+    estimate,
+    detail,
+    input: {
+      name: (draft.seoName || draft.name || product.name).trim(),
+      itemName: (draft.name || product.name).trim(),
+      salePrice: estimate.salePrice,
+      originalPrice: estimate.salePrice,
+      displayCategoryCode: $("wingCategory").value.trim(),
+      images,
+      description: draft.description || product.description || "",
+      sku: product.sku || "",
+      deliveryCharge: 0,
+      returnCharge: 10000,
+      attributes: [],
+      notices: noticeTemplate($("wingNotice").value, product, detail),
+    },
+  };
 }
+
+async function registerToWing() {
+  if (!$("editName").reportValidity()) return;
+  flushDraft();
+  let prepared;
+  try {
+    prepared = registrationInput();
+  } catch (error) {
+    return toast(error.message);
+  }
+  state.registerLoading = true;
+  renderRegisterResult();
+  try {
+    const response = await fetch("/api/register-product", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(40000),
+      body: JSON.stringify(prepared.input),
+    });
+    const data = await response.json();
+    state.registerResult = data;
+    if (data.ok)
+      toast(
+        "쿠팡에 상품 등록을 요청했고 쿠팡이 접수했습니다. WING에서 승인 상태를 확인하세요.",
+      );
+    else toast(data.error || "쿠팡이 등록 요청을 거부했습니다.");
+  } catch (error) {
+    state.registerResult = {
+      ok: false,
+      error:
+        error.name === "TimeoutError"
+          ? "쿠팡 응답이 40초 안에 오지 않았습니다."
+          : "등록 요청을 보내지 못했습니다: " + error.message,
+    };
+  } finally {
+    state.registerLoading = false;
+    renderRegisterResult();
+  }
+}
+
+function renderRegisterResult() {
+  const box = $("registerResult");
+  if (!box) return;
+  if (state.registerLoading) {
+    box.hidden = false;
+    box.className = "alert alert-info";
+    box.innerHTML =
+      '<span class="spinner"></span><p>쿠팡 WING Open API로 등록을 요청하는 중입니다…</p>';
+    return;
+  }
+  const result = state.registerResult;
+  if (!result) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  box.hidden = false;
+  box.className = "alert " + (result.ok ? "alert-success" : "alert-error");
+  const detailBits = [];
+  if (result.status) detailBits.push("HTTP " + result.status);
+  if (result.code) detailBits.push("코드 " + result.code);
+  if (result.message) detailBits.push(String(result.message).slice(0, 300));
+  if (Array.isArray(result.problems) && result.problems.length)
+    detailBits.push("부족한 항목: " + result.problems.join(", "));
+  if (result.detail?.code) detailBits.push("상세: " + result.detail.code);
+  box.innerHTML =
+    `<p><strong>${result.ok ? "쿠팡 등록 요청 접수됨" : "쿠팡이 등록을 거부했습니다."}</strong> ` +
+    esc(result.error || "") +
+    (detailBits.length ? "<br>" + esc(detailBits.join(" · ")) : "") +
+    "</p>" +
+    (result.ok
+      ? ""
+      : '<p class="form-hint">쿠팡 Open API는 WING &gt; 판매자정보 &gt; 추가판매정보에 등록한 IP에서만 호출됩니다. 이 앱은 Cloudflare에서 실행되어 송신 IP가 매번 달라지므로 등록 IP와 일치하지 않을 수 있습니다. WING 화면 등록은 아래 <strong>피클 비서에게 등록 요청 복사</strong>로 진행하세요.</p>');
+}
+
+function downloadWingPayload() {
+  if (!$("editName").reportValidity() || !$("editName").value.trim()) return;
+  flushDraft();
+  let prepared;
+  try {
+    prepared = registrationInput();
+  } catch (error) {
+    return toast(error.message);
+  }
+  downloadFile(
+    JSON.stringify(prepared.input, null, 2),
+    "쿠팡등록_페이로드_" + (prepared.input.name || "상품").slice(0, 15) + ".json",
+  );
+  toast("쿠팡 상품 등록 API 페이로드(JSON)를 내려받았습니다.");
+}
+
 
 function downloadFile(content, filename) {
   const url = URL.createObjectURL(
@@ -1223,7 +1490,7 @@ function exportSelection() {
 // One delegated handler keeps generated cards free of inline JavaScript.
 document.addEventListener("click", (event) => {
   const target = event.target.closest(
-    "[data-action], [data-view], [data-query], [data-close], [data-page], [data-category], [data-filter-clear]",
+    "[data-action], [data-view], [data-query], [data-close], [data-page], [data-category], [data-keyword], [data-filter-clear]",
   );
   if (!target || target.disabled) return;
   if (target.dataset.view) {
@@ -1236,6 +1503,11 @@ document.addEventListener("click", (event) => {
   }
   if (target.dataset.query) {
     $("searchInput").value = target.dataset.query;
+    applySearch();
+    return;
+  }
+  if (target.dataset.keyword) {
+    $("searchInput").value = target.dataset.keyword;
     applySearch();
     return;
   }
@@ -1305,7 +1577,7 @@ document.addEventListener("click", (event) => {
       $("manualName").focus();
       break;
     case "retry":
-      state.mode === "live" ? searchLive() : loadCatalog();
+      state.mode === "live" ? searchLive() : renderCatalog();
       break;
     case "load-live":
       searchLive(true);
@@ -1345,16 +1617,22 @@ $("searchInput").addEventListener("input", () => {
 });
 $("dataMode").addEventListener("change", () => {
   cancelLive();
-  state.mode = $("dataMode").value;
+  state.mode = $("dataMode").value === "imported" ? "imported" : "live";
   resetFilters(false);
   persist();
+  renderSourceFilter();
   renderBadges();
   renderCatalog();
   syncUrl();
-  if (state.mode === "live" && state.query) searchLive();
+  if (state.mode === "live") searchLive();
+});
+$("sourceFilter").addEventListener("change", () => {
+  if (state.mode !== "live") return;
+  state.source = $("sourceFilter").value === "ownerclan" ? "ownerclan" : "domeggook";
+  syncUrl();
+  searchLive();
 });
 for (const key of [
-  "sourceFilter",
   "singleOrder",
   "freeShipping",
   "consignment",
@@ -1362,19 +1640,32 @@ for (const key of [
 ])
   $(key).addEventListener("change", () => {
     state.page = 1;
-    renderCatalog();
     syncUrl();
+    if (state.mode === "live" && state.view === "discover") refreshLive();
+    else renderCatalog();
   });
+let priceTimer;
 for (const key of ["minPrice", "maxPrice"])
   $(key).addEventListener("input", () => {
     state.page = 1;
-    renderCatalog();
     syncUrl();
+    if (!validatePriceFilters()) {
+      renderCatalog();
+      return;
+    }
+    clearTimeout(priceTimer);
+    priceTimer = setTimeout(() => {
+      if (state.mode === "live" && state.view === "discover" && state.query)
+        searchLive();
+      else renderCatalog();
+    }, 400);
   });
 $("resetFilters").addEventListener("click", () => {
   resetFilters();
-  renderCatalog();
   syncUrl();
+  if (state.mode === "live" && state.view === "discover" && state.query)
+    searchLive();
+  else renderCatalog();
 });
 $("filterToggle").addEventListener("click", () => {
   const open = $("filtersPanel").classList.toggle("open");
@@ -1468,7 +1759,8 @@ $("prepareForm").addEventListener("input", (event) => {
 $("generateSeo").addEventListener("click", generateSeo);
 $("copyDraft").addEventListener("click", copyDraft);
 $("copyForPickle")?.addEventListener("click", copyForPickle);
-$("downloadWingCsv")?.addEventListener("click", downloadWingCsv);
+$("registerWing")?.addEventListener("click", registerToWing);
+$("downloadWingPayload")?.addEventListener("click", downloadWingPayload);
 $("downloadTemplate").addEventListener("click", () =>
   downloadFile(CSV_TEMPLATE, "상품_가져오기_양식.csv"),
 );
@@ -1601,4 +1893,13 @@ $("manualForm").addEventListener("submit", (event) => {
 renderSources();
 renderBadges();
 setView(state.view, true);
-loadCatalog();
+loadMeta().then(() => {
+  if (state.mode === "live" && state.view === "discover") {
+    if (!state.query) {
+      state.query = DEFAULT_QUERY;
+      $("searchInput").value = DEFAULT_QUERY;
+      syncUrl();
+    }
+    searchLive();
+  }
+});

@@ -1,83 +1,62 @@
-import { filterProducts, normalizeMoney } from "../public/lib/products.js";
-import { DEMO_PRODUCTS } from "./catalog.js";
-import { SourcingError, boundedInteger } from "./sourcing.js";
+import { SourcingError, searchDomeggook } from "./sourcing.js";
 
-// 혁신적 아이디어 상품 카테고리 및 키워드 정의
-export const IDEA_KEYWORDS = [
-  "아이디어",
-  "특허",
-  "혁신",
-  "다용도",
+/**
+ * 아이디어 상품 발굴 — 예시 데이터가 아니라 도매꾹 실시간 목록을
+ * ‘아이디어성 키워드’로 실제 검색해 모아 보여준다.
+ * 점수·등급 같은 추정 지표는 만들지 않고, 확인 가능한 사실(공급가·MOQ·배송비)만 쓴다.
+ */
+export const IDEA_QUERIES = [
   "접이식",
   "무타공",
-  "자동",
-  "실리콘",
-  "틈새",
   "원터치",
-  "멀티",
+  "다용도",
   "압축",
-  "회전",
-  "변형",
-  "초간편",
+  "틈새",
 ];
 
-export function isIdeaProduct(product) {
-  const text = [
-    product.name,
-    product.description || "",
-    ...(Array.isArray(product.tags) ? product.tags : []),
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  // 1개 이상 아이디어 키워드 포함 또는 특정 조건 (소형/아이디어 성격)
-  const matchCount = IDEA_KEYWORDS.filter((keyword) => text.includes(keyword)).length;
-  return matchCount > 0;
-}
-
-export function searchIdeaProducts(params) {
-  const page = boundedInteger(params.get("page"), 1, 100);
-  const pageSize = boundedInteger(params.get("pageSize"), 24, 100);
-  const minPrice = params.has("minPrice") ? normalizeMoney(params.get("minPrice")) : "";
-  const maxPrice = params.has("maxPrice") ? normalizeMoney(params.get("maxPrice")) : "";
-  
-  if (minPrice !== "" && maxPrice !== "" && minPrice > maxPrice)
-    throw new SourcingError("최소 가격은 최대 가격 이하여야 합니다.", 400);
-
-  const keywordFilter = (params.get("q") || "").trim();
-  const noveltyOnly = params.get("noveltyOnly") === "true";
-  const minMarginScore = boundedInteger(params.get("minMarginScore"), 0, 100);
-
-  // 전체 상품 또는 데모 상품 중에서 아이디어 성격의 상품 필터링
-  let pool = DEMO_PRODUCTS.filter(isIdeaProduct);
-
-  // 추가 디테일 검색 조건 적용
-  const filtered = filterProducts(pool, {
-    q: keywordFilter,
-    category: params.get("category"),
-    source: params.get("source"),
-    minPrice,
-    maxPrice,
-    sort: params.get("sort") || "popularity",
-    freeShipping: params.get("freeShipping") === "true",
-    singleOrder: params.get("singleOrder") === "true",
-    consignment: params.get("consignment") === "true",
+export async function searchIdeaProducts(env, params, fetcher = fetch) {
+  const extra = (params.get("q") || "").trim().slice(0, 40);
+  const keywords = [...new Set([extra, ...IDEA_QUERIES].filter(Boolean))].slice(
+    0,
+    6,
+  );
+  const perKeyword = 12;
+  const searches = keywords.map((keyword) => {
+    const searchParams = new URLSearchParams({
+      q: keyword,
+      pageSize: String(perKeyword),
+      page: "1",
+      singleOrder: "true",
+      ...(params.get("minPrice") ? { minPrice: params.get("minPrice") } : {}),
+      ...(params.get("maxPrice") ? { maxPrice: params.get("maxPrice") } : {}),
+    });
+    return searchDomeggook(env, searchParams, fetcher).catch(() => null);
   });
-
-  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
-
+  const results = (await Promise.all(searches)).filter(Boolean);
+  if (!results.length)
+    throw new SourcingError(
+      "도매꾹 실시간 검색에 실패해 아이디어 상품을 모으지 못했습니다.",
+      502,
+    );
+  const merged = new Map();
+  for (const result of results)
+    for (const product of result.products)
+      if (!merged.has(product.id)) merged.set(product.id, product);
+  const products = [...merged.values()].sort((a, b) => {
+    const freeA = a.shippingFee === 0 ? 1 : 0;
+    const freeB = b.shippingFee === 0 ? 1 : 0;
+    if (freeA !== freeB) return freeB - freeA;
+    return (a.wholesalePrice ?? Infinity) - (b.wholesalePrice ?? Infinity);
+  });
   return {
     ok: true,
-    mode: "idea-discovery",
-    products: paged.map(p => ({
-      ...p,
-      ideaScore: 85 + (p.name.length % 15), // 가상의 아이디어 점수 (혁신성 지표)
-      noveltyBadge: p.name.includes("접이식") || p.name.includes("무타공") ? "특허출원/아이디어" : "베스트셀러 픽",
-    })),
-    total: filtered.length,
-    page,
-    pageSize,
-    hasMore: page * pageSize < filtered.length,
-    note: "도매몰 아이디어 상품 발굴 전용 필터링 결과입니다. 참신성, 마진율, 최소주문수량 조건을 만족하는 상품들입니다.",
+    mode: "live-idea",
+    keywords,
+    products,
+    total: products.length,
+    note:
+      "도매꾹에서 아이디어성 키워드(" +
+      keywords.join(", ") +
+      ")로 실제 조회한 결과입니다. 1개부터 주문 가능한 상품만 모았고, 무료배송·낮은 공급가 순으로 정렬했습니다.",
   };
 }

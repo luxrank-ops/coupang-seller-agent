@@ -8,7 +8,7 @@ export function loadWorkspace(storage) {
     selected: [],
     imported: [],
     drafts: {},
-    mode: "demo",
+    mode: "live",
     warning: false,
   };
   try {
@@ -56,7 +56,7 @@ export function loadWorkspace(storage) {
       selected: products(data.selected, 100),
       imported: products(data.imported, MAX_PRODUCTS),
       drafts,
-      mode: data.mode === "imported" ? "imported" : "demo",
+      mode: data.mode === "imported" ? "imported" : "live",
       warning: false,
     };
   } catch {
@@ -74,7 +74,7 @@ export function saveWorkspace(storage, state) {
         selected: [...state.selected.values()],
         imported: state.imported,
         drafts: Object.fromEntries([...state.drafts].slice(-MAX_PRODUCTS)),
-        mode: state.mode === "imported" ? "imported" : "demo",
+        mode: state.mode === "imported" ? "imported" : "live",
       }),
     );
     return true;

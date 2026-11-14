@@ -152,8 +152,8 @@
                   채널</span
                 ><span class="meta-dot">·</span
                 ><span
-                  ><span data-icon="box"></span
-                  ><strong id="demoTotal">48</strong>개 체험용 예시</span
+                  ><span data-icon="box"></span>도매꾹·오너클랜
+                  <strong>실시간 연동</strong></span
                 >
               </div>
             </div>
@@ -231,7 +231,7 @@
                 <button id="resetFilters" class="text-button">초기화</button>
               </div>
               <fieldset class="filter-group category-filter">
-                <legend>카테고리</legend>
+                <legend>키워드 · 카테고리</legend>
                 <div id="categoryFilters"></div>
               </fieldset>
               <div class="filter-group">
@@ -302,11 +302,8 @@
                     <span data-icon="sliders"></span>필터</button
                   ><label class="sr-only" for="dataMode">상품 데이터 종류</label
                   ><select id="dataMode">
-                    <option value="demo">예시 상품</option>
-                    <option value="imported">내가 가져온 상품</option>
-                    <option value="live" disabled>
-                      도매꾹 API · 미연결
-                    </option></select
+                    <option value="live">도매꾹 실시간 조회</option>
+                    <option value="imported">내가 가져온 상품</option></select
                   ><label class="sr-only" for="sortOrder">상품 정렬</label
                   ><select id="sortOrder">
                     <option value="default">기본순</option>
@@ -327,11 +324,11 @@
               <div id="dataNotice" class="data-notice">
                 <span data-icon="info"></span>
                 <p>
-                  기능 체험용 <strong>예시 상품</strong>입니다. 실제 도매몰
-                  상품·공급가·재고가 아닙니다.
+                  <strong>도매꾹 실시간 조회</strong> 결과입니다. 공급가·최소주문·배송비는
+                  API 응답값이며, 옵션별 조건과 재고는 상품 상세에서 확인하세요.
                 </p>
-                <button data-action="import-open">
-                  실제 상품 가져오기 <span data-icon="arrow-right"></span>
+                <button data-action="sources-open">
+                  다른 도매몰 바로가기 <span data-icon="arrow-right"></span>
                 </button>
               </div>
               <div
@@ -377,8 +374,8 @@
             <span data-icon="info"></span>
             <p>
               <strong>여기는 판매 준비 공간입니다.</strong> 상품 선택·저장은
-              주문이나 쿠팡 등록을 실행하지 않습니다. WING 자동 등록 API는
-              연결되지 않았습니다.
+              주문을 실행하지 않습니다. 쿠팡 등록은 아래 <strong>쿠팡 WING에 등록 실행</strong>이
+              실제 Open API를 호출하고, 거부되면 쿠팡의 응답을 그대로 보여줍니다.
             </p>
           </div>
           <div id="prepareEmpty" class="empty-state" hidden>
@@ -517,19 +514,59 @@
                     >WING 바로가기 <span data-icon="arrow-up-right"></span
                   ></a>
                 </div>
+                <div class="editor-subheading">
+                  <h3>쿠팡 WING 등록</h3>
+                  <a
+                    class="text-button"
+                    href="https://wing.coupang.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >WING 카테고리 검색 열기 <span data-icon="arrow-up-right"></span
+                  ></a>
+                </div>
+                <div class="form-grid">
+                  <label class="form-field"
+                    >노출카테고리 코드<input
+                      id="wingCategory"
+                      inputmode="numeric"
+                      maxlength="12"
+                      placeholder="예: 632113"
+                  /></label>
+                  <label class="form-field"
+                    >고시정보 템플릿<select id="wingNotice">
+                      <option value="기타 재화">기타 재화</option>
+                      <option value="패션잡화">패션잡화</option>
+                      <option value="가전제품">가전제품</option>
+                    </select></label>
+                </div>
+                <p class="form-hint">
+                  쿠팡 Open API 등록에는 노출카테고리 코드와 상품 고시정보가
+                  필수입니다. 코드를 비워두면 등록을 보내지 않고 부족한 항목을
+                  알려줍니다. 코드는 WING 카테고리 검색에서 확인하세요.
+                </p>
                 <div class="editor-actions" style="margin-top: 10px; border-top: none; padding-top: 0;">
                   <button
                     type="button"
                     class="button button-primary"
-                    id="copyForPickle"
+                    id="registerWing"
                   >
-                    <span data-icon="sparkles"></span>🤖 피클 비서에게 등록 요청 복사</button
+                    <span data-icon="upload"></span>쿠팡 WING에 등록 실행</button
                   ><button
                     type="button"
                     class="button button-secondary"
-                    id="downloadWingCsv"
+                    id="downloadWingPayload"
                   >
-                    <span data-icon="download"></span>WING 일괄등록 양식 CSV</button>
+                    <span data-icon="download"></span>등록 페이로드(JSON)</button
+                  >
+                </div>
+                <div id="registerResult" class="alert" hidden></div>
+                <div class="editor-actions" style="margin-top: 10px; border-top: none; padding-top: 0;">
+                  <button
+                    type="button"
+                    class="button button-secondary"
+                    id="copyForPickle"
+                  >
+                    <span data-icon="sparkles"></span>🤖 피클 비서에게 등록 요청 복사</button>
                 </div>
               </form>
               <div class="checklist-card">

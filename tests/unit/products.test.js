@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEMO_PRODUCTS } from "../../src/catalog.js";
+import { DEMO_PRODUCTS } from "../fixtures/demo-products.js";
 import {
   filterProducts,
   normalizeImportedProduct,

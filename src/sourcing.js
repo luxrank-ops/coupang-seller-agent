@@ -37,7 +37,9 @@ const PAGE_SIZE = 40;
 
 const num = (value) => {
   if (value === null || value === undefined) return null;
-  const parsed = Number(String(value).replace(/[^\d.-]/g, ""));
+  const text = String(value).trim();
+  if (!text) return null;
+  const parsed = Number(text.replace(/[^\d.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : null;
 };
 
@@ -238,8 +240,11 @@ export async function searchDomeggook(env, params, fetcher = fetch) {
     break;
   }
   if (!parsed) {
+    const apiError = attempts.find((attempt) => attempt.errorName === "ApiError");
     throw new SourcingError(
-      "도매꾹 API에서 상품을 받아오지 못했습니다. 잠시 후 다시 시도해주세요.",
+      apiError
+        ? apiError.errorMessage
+        : "도매꾹 API에서 상품을 받아오지 못했습니다. 잠시 후 다시 시도해주세요.",
       502,
       { upstream: attempts },
     );

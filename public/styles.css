@@ -3814,3 +3814,131 @@ body:has(dialog[open]) {
     margin-left: 20px;
   }
 }
+
+/* 실시간 연동 상태 · 상세정보 · 등록 결과 (2026-11 개편) */
+.integration-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.integration-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  border: 1px solid var(--line, #e4e7ec);
+  background: #fff;
+  color: #344054;
+}
+.integration-chip svg {
+  width: 15px;
+  height: 15px;
+}
+.integration-chip small {
+  font-weight: 500;
+  color: #667085;
+}
+.integration-chip.is-on {
+  border-color: #b9e6c9;
+  background: #f0fbf4;
+  color: #17663a;
+}
+.integration-chip.is-off {
+  border-color: #f2d3d0;
+  background: #fff6f5;
+  color: #a8352c;
+}
+.integration-help {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #667085;
+  line-height: 1.55;
+}
+.detail-live {
+  margin: 4px 0 12px;
+  border-top: 1px dashed var(--line, #e4e7ec);
+  padding-top: 12px;
+}
+.detail-live:empty {
+  display: none;
+}
+.detail-live-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #475467;
+  margin-bottom: 8px;
+}
+.detail-live-heading strong {
+  color: #101828;
+}
+.detail-live-heading small {
+  color: #98a2b3;
+}
+.detail-live-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px 14px;
+  font-size: 0.85rem;
+}
+.detail-live-grid span {
+  color: #667085;
+  display: block;
+}
+.detail-live-grid strong {
+  color: #101828;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+.detail-live-options {
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+.detail-live-options span {
+  color: #667085;
+}
+.detail-live-options ul {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.detail-live-options li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.detail-live-options em {
+  font-style: normal;
+  background: #f2f4f7;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+}
+.detail-live-note {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  color: #667085;
+  line-height: 1.5;
+}
+.alert-success {
+  background: #f0fbf4;
+  border: 1px solid #b9e6c9;
+  color: #17663a;
+}
+.alert-success p {
+  margin: 0;
+}
+.is-hidden {
+  display: none !important;
+}

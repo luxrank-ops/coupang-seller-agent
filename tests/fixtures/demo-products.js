@@ -1,5 +1,5 @@
-// Demonstration data only. None of these are verified supplier offers.
-// Supplier names illustrate possible sourcing channels, not actual availability.
+// 테스트 픽스처 전용 예시 데이터. 앱 화면·API 응답에는 사용되지 않는다.
+// (실서비스는 도매꾹 Open API 실시간 조회만 사용한다.)
 const groups = {
   living: [
     ["적층형 투명 수납함 대형", 3800, "organizer", "수납 정리 리빙박스 옷장"],

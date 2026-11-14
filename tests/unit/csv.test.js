@@ -7,7 +7,7 @@ import {
   exportProducts,
   CSV_TEMPLATE,
 } from "../../public/lib/csv.js";
-import { DEMO_PRODUCTS } from "../../src/catalog.js";
+import { DEMO_PRODUCTS } from "../fixtures/demo-products.js";
 
 test("parses BOM, CRLF, commas, escaped quotes and multiline cells", () => {
   assert.deepEqual(
