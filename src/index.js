@@ -44,7 +44,7 @@ async function readJson(request) {
 
 const CACHE_SECONDS = 60;
 
-async function cachedJson(ctx, url, key, compute) {
+async function cachedJson(ctx, url, key, compute, ttl = CACHE_SECONDS) {
   const cache = typeof caches !== "undefined" ? caches.default : null;
   if (!cache) return json(await compute());
   const cacheUrl = new URL("/api/_cache", url.origin);
@@ -53,7 +53,7 @@ async function cachedJson(ctx, url, key, compute) {
   const hit = await cache.match(cacheKey);
   if (hit) return hit;
   const response = json(await compute(), 200, {
-    "Cache-Control": `public, max-age=${CACHE_SECONDS}`,
+    "Cache-Control": `public, max-age=${ttl}`,
   });
   try {
     if (ctx?.waitUntil) ctx.waitUntil(cache.put(cacheKey, response.clone()));
@@ -79,7 +79,24 @@ async function searchLive(env, url, ctx) {
   const keyword = (url.searchParams.get("q") || "").trim();
   if (keyword.length > 100)
     throw new SourcingError("검색어는 100자 이내로 입력해주세요.", 400);
-  if (source === "ownerclan") return json(await searchOwnerclan(env, url.searchParams));
+  if (source === "ownerclan") {
+    // 오너클랜 검색 API는 응답이 수십 초까지 느려질 때가 있어 성공 결과를 10분간 재사용한다.
+    const ownerclanKey = new URLSearchParams({
+      source,
+      q: keyword,
+      cursor: url.searchParams.get("cursor") || "",
+      minPrice: url.searchParams.get("minPrice") || "",
+      maxPrice: url.searchParams.get("maxPrice") || "",
+      pageSize: url.searchParams.get("pageSize") || "24",
+    }).toString();
+    return cachedJson(
+      ctx,
+      url,
+      "ownerclan:" + ownerclanKey,
+      () => searchOwnerclan(env, url.searchParams),
+      600,
+    );
+  }
   if (source !== "domeggook")
     throw new SourcingError("지원하지 않는 소싱처입니다.", 400);
   const cacheKey = new URLSearchParams({
