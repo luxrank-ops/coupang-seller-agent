@@ -1,3 +1,5 @@
+import { SourcingError } from "./sourcing.js";
+
 function escapeHtml(value) {
   return String(value).replace(
     /[&<>"']/g,
@@ -159,7 +161,7 @@ export async function generateProductSeo(info, env, fetcher = fetch) {
         )
       : [() => callOpenai(info, env, fetcher)];
 
-  let lastError;
+  let cause;
   const deadline = Date.now() + 25000;
   for (const attempt of attempts) {
     if (Date.now() > deadline) break;
@@ -171,10 +173,15 @@ export async function generateProductSeo(info, env, fetcher = fetch) {
         note: "AI 초안입니다. 상품명·표현·인증·권리를 직접 검토하세요.",
       };
     } catch (error) {
-      lastError = error;
+      cause = error;
     }
   }
-  throw new Error("AI 초안을 생성하지 못했습니다. 잠시 후 다시 시도해주세요.", {
-    cause: lastError,
-  });
+  throw new SourcingError(
+    "AI 초안을 생성하지 못했습니다" +
+      (cause
+        ? " (" + String(cause.message || cause).slice(0, 120) + ")"
+        : "") +
+      ". 잠시 후 다시 시도해주세요.",
+    502,
+  );
 }
