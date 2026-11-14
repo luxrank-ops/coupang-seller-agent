@@ -95,6 +95,7 @@ test("translates filters into documented request parameters", () => {
     mnp: "1000",
     mxp: "50000",
     mnq: "1",
+    mxq: "1",
     who: "S",
   });
   const category = buildDomeggookListQuery(params({ category: "01_16_08_00_00" }));

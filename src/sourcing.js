@@ -83,7 +83,11 @@ export function buildDomeggookListQuery(params, pageSize = PAGE_SIZE) {
   const maxPrice = text(params.get("maxPrice"));
   if (minPrice) query.mnp = String(normalizeMoney(minPrice));
   if (maxPrice) query.mxp = String(normalizeMoney(maxPrice));
-  if (params.get("singleOrder") === "true") query.mnq = "1";
+  // mnq/mxq는 범위 조건이다. 1개부터 주문 가능한 상품만 보려면 최소·최대를 모두 1로 준다.
+  if (params.get("singleOrder") === "true") {
+    query.mnq = "1";
+    query.mxq = "1";
+  }
   if (params.get("freeShipping") === "true") query.who = "S";
   return query;
 }
