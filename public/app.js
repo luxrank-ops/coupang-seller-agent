@@ -1683,7 +1683,14 @@ $("dataMode").addEventListener("change", () => {
   renderBadges();
   renderCatalog();
   syncUrl();
-  if (state.mode === "live") searchLive();
+  if (state.mode === "live") {
+    if (!state.query) {
+      state.query = DEFAULT_QUERY;
+      $("searchInput").value = DEFAULT_QUERY;
+      syncUrl();
+    }
+    searchLive();
+  }
 });
 $("sourceFilter").addEventListener("change", () => {
   if (state.mode !== "live") return;
