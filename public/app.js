@@ -73,6 +73,7 @@ const state = {
   integrations: { domeggook: false, ownerclan: false, seo: false, wing: false },
   wing: {},
   keywords: KEYWORDS,
+  idea: null,
   detail: null,
   detailError: "",
   detailLoading: false,
@@ -259,6 +260,13 @@ function renderNotice() {
       (state.imported.length
         ? '<button data-action="clear-imported">목록 삭제</button>'
         : "");
+  } else if (state.idea) {
+    notice.classList.add("live");
+    notice.innerHTML =
+      icon("info") +
+      `<p><strong>아이디어 상품 발굴</strong> — 도매꾹에서 ${esc((state.idea.keywords || []).join(", "))} 키워드로 실제 조회한 결과입니다. 1개부터 주문 가능한 상품만 모아 무료배송·낮은 공급가 순으로 정렬했습니다.</p><button data-action="search-mode">일반 검색으로 ` +
+      icon("arrow-right") +
+      "</button>";
   } else {
     notice.classList.add("live");
     const name = state.source === "ownerclan" ? "오너클랜" : "도매꾹";
@@ -383,7 +391,9 @@ function renderCatalog() {
       ? "나의 관심 상품"
       : state.mode === "imported"
         ? "가져온 상품"
-        : sourceName + " 실시간 조회";
+        : state.idea
+          ? "아이디어 상품 발굴"
+          : sourceName + " 실시간 조회";
   $("resultsCount").textContent = state.liveLoading
     ? "조회 중…"
     : state.mode === "live" && state.view === "discover"
@@ -924,9 +934,45 @@ function refreshLive() {
   else renderCatalog();
 }
 
+async function loadIdea() {
+  cancelLive();
+  const requestId = liveRequestId;
+  state.mode = "live";
+  $("dataMode").value = "live";
+  state.view = "discover";
+  state.liveLoading = true;
+  state.liveError = "";
+  state.liveQuery = "아이디어";
+  state.liveProducts = [];
+  state.liveHasMore = false;
+  state.liveTotal = null;
+  renderCatalog();
+  try {
+    const response = await fetch("/api/idea-products", {
+      signal: AbortSignal.timeout(40000),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok)
+      throw new Error(data.error || "아이디어 상품을 불러오지 못했습니다.");
+    if (requestId !== liveRequestId) return;
+    state.idea = { keywords: data.keywords || [], note: data.note || "" };
+    state.liveProducts = (data.products || []).filter(isStoredProduct);
+    state.liveTotal = data.total ?? state.liveProducts.length;
+  } catch (error) {
+    if (requestId === liveRequestId)
+      state.liveError = error.message || "아이디어 상품을 불러오지 못했습니다.";
+  } finally {
+    if (requestId === liveRequestId) {
+      state.liveLoading = false;
+      renderCatalog();
+    }
+  }
+}
+
 function applySearch() {
   state.query = $("searchInput").value.trim().slice(0, 100);
   state.page = 1;
+  state.idea = null;
   renderSources();
   syncUrl();
   if (state.mode === "live" && state.view === "discover") searchLive();
@@ -1581,6 +1627,13 @@ document.addEventListener("click", (event) => {
       openDialog("manualDialog");
       closeSidebar();
       $("manualName").focus();
+      break;
+    case "idea":
+      loadIdea();
+      break;
+    case "search-mode":
+      state.idea = null;
+      searchLive();
       break;
     case "retry":
       state.mode === "live" ? searchLive() : renderCatalog();
