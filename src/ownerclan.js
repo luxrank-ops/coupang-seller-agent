@@ -147,12 +147,13 @@ export async function searchOwnerclan(env, params, fetcher = fetch) {
         "User-Agent": UA,
       },
       body: JSON.stringify({ query: SEARCH_QUERY, variables }),
-      signal: AbortSignal.timeout(40000),
+      // 오너클랜 검색 API는 느릴 때 응답이 80초까지 걸린다. 브라우저 대기(92초)보다 짧게 끊는다.
+      signal: AbortSignal.timeout(80000),
     });
   } catch (error) {
     if (error?.name === "TimeoutError")
       throw new SourcingError(
-        "오너클랜 검색 응답이 40초 안에 오지 않았습니다. 오너클랜 검색 API가 느릴 때 발생하며, 잠시 후 다시 시도하거나 다른 소싱처를 이용해주세요.",
+        "오너클랜 검색 응답이 80초 안에 오지 않았습니다. 오너클랜 검색 API가 느릴 때 발생하며, 같은 검색어로 다시 시도하면 대개 더 빠르게 응답합니다.",
         504,
       );
     throw new SourcingError("오너클랜 API에 연결하지 못했습니다.", 502);

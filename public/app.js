@@ -415,7 +415,9 @@ function renderCatalog() {
     state.view === "discover";
   if (loading) {
     $("productGrid").innerHTML =
-      '<div class="loading-state"><span class="spinner"></span>상품을 불러오고 있어요</div>';
+      state.source === "ownerclan"
+        ? '<div class="loading-state"><span class="spinner"></span>오너클랜 검색 API는 응답이 느려 최대 1분 이상 걸릴 수 있어요. 창을 닫지 말고 잠시 기다려 주세요</div>'
+        : '<div class="loading-state"><span class="spinner"></span>상품을 불러오고 있어요</div>';
     $("pagination").innerHTML = "";
     return;
   }
@@ -889,8 +891,8 @@ async function searchLive(append = false) {
     const response = await fetch("/api/products?" + params, {
       signal: AbortSignal.any([
         liveController.signal,
-        // 오너클랜 검색 API는 응답이 20초를 넘기는 경우가 있어 더 기다린다.
-        AbortSignal.timeout(source === "ownerclan" ? 55000 : 20000),
+        // 오너클랜 검색 API는 80초까지 걸리는 경우가 있어 서버 타임아웃보다 길게 잡는다.
+        AbortSignal.timeout(source === "ownerclan" ? 92000 : 20000),
       ]),
     });
     const data = await response.json();
