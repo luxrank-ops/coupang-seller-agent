@@ -2,7 +2,13 @@ import { DEMO_PRODUCTS } from "./catalog.js";
 import { SOURCES, CATEGORIES } from "../public/lib/sources.js";
 import { filterProducts, normalizeMoney } from "../public/lib/products.js";
 import { generateProductSeo } from "./prompt.js";
-import { boundedInteger, searchDomeggook, SourcingError } from "./sourcing.js";
+import {
+  boundedInteger,
+  getDomeggookItem,
+  probeDomeggook,
+  searchDomeggook,
+  SourcingError,
+} from "./sourcing.js";
 import { searchOwnerclan } from "./ownerclan.js";
 import { searchIdeaProducts } from "./ideaDiscovery.js";
 
@@ -76,6 +82,8 @@ export default {
         : new Response("Not found", { status: 404 });
     try {
       const routeMethods = {
+        "/api/health": "GET",
+        "/api/item-detail": "GET",
         "/api/catalog": "GET",
         "/api/products": "GET",
         "/api/idea-products": "GET",
@@ -92,6 +100,28 @@ export default {
         return json({ ok: false, error: `${method} 요청만 지원합니다.` }, 405, {
           Allow: method,
         });
+      if (url.pathname === "/api/health") {
+        return json({
+          ok: true,
+          domeggook: await probeDomeggook(env),
+          integrations: {
+            domeggook: Boolean(env.DOMEGGOOK_API_KEY),
+            ownerclan: Boolean(env.OWNERCLAN_API_KEY),
+            wing: Boolean(env.WING_ACCESS_KEY && env.WING_SECRET_KEY),
+          },
+        });
+      }
+      if (url.pathname === "/api/item-detail") {
+        if ((url.searchParams.get("source") || "domeggook") !== "domeggook")
+          throw new SourcingError("지원하지 않는 소싱처입니다.", 400);
+        return json(
+          await getDomeggookItem(
+            env,
+            url.searchParams.get("no") || "",
+          ),
+        );
+      }
+
       if (url.pathname === "/api/idea-products") {
         try {
           return json(searchIdeaProducts(url.searchParams));
@@ -212,6 +242,8 @@ export default {
             error instanceof SourcingError
               ? error.message
               : "요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.",
+          upstream:
+            error instanceof SourcingError ? error.extra?.upstream : undefined,
         },
         error instanceof SourcingError ? error.status : 502,
       );
