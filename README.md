@@ -75,7 +75,7 @@ npm run deploy          # Cloudflare 권한이 있는 운영 환경에서만 실
 | 이름 | 용도 |
 | --- | --- |
 | `DOMEGGOOK_API_KEY` | 도매꾹 Open API 키(`aid`) |
-| `OWNERCLAN_USERNAME` / `OWNERCLAN_PASSWORD` | 오너클랜 판매사 계정(JWT 발급). `OWNERCLAN_TOKEN`으로 토큰만 넣어도 됩니다 |
+| `OWNERCLAN_USERNAME` / `OWNERCLAN_PASSWORD` | 오너클랜 판매사 계정(JWT 발급, 인증 응답은 plain text JWT). `OWNERCLAN_TOKEN`으로 토큰만 넣어도 됩니다 |
 | `WING_ACCESS_KEY` / `WING_SECRET_KEY` | 쿠팡 WING Open API 서명 키 |
 | `WING_VENDOR_ID` / `WING_REGISTERED_IP` | 업체코드, WING에 등록된 IP(안내용) |
 | `GEMINI_API_KEY` 또는 `OPENAI_API_KEY` | 상품명·태그 AI 초안(선택) |
@@ -88,6 +88,8 @@ npx wrangler secret put WING_ACCESS_KEY
 npx wrangler secret put WING_SECRET_KEY
 npm run deploy
 ```
+
+오너클랜 검색(`allItems`)은 응답이 10초대에서 40초를 넘기는 경우까지 들쭉날쭉합니다(2026-11-14 실측: `bag` 5.8초 성공, `가방`·`수납` 40초 초과). 그래서 서버는 40초까지 기다리고, 성공 결과는 10분간 재사용하며, 초과 시 `504`와 함께 지연 안내를 돌려줍니다.
 
 도매꾹 호출은 문서의 권장 엔드포인트 `https://www.domeggook.com/ssl/api/`를 먼저 쓰고, 실패하면 `https://domeggook.com/ssl/api/`로 재시도합니다(리다이렉트 추적, 12초 타임아웃, 쿼리별 60초 캐시). 실패 시 `upstream` 배열에 엔드포인트별 상태·오류만 남기고 키는 노출하지 않습니다. 연동 상태는 `GET /api/health`로 확인합니다.
 
