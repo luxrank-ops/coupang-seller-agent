@@ -159,9 +159,10 @@ function findProduct(id) {
 function filters() {
   const live = state.mode === "live";
   return {
-    q: state.query,
+    // 실시간 모드는 서버가 검색어를 적용했으므로 같은 조건으로 다시 거르지 않는다.
+    q: live ? "" : state.query,
     category: live ? "all" : state.category,
-    source: live ? "all" : $("sourceFilter").value,
+    source: live ? "all" : $("sourceFilter").value || "all",
     minPrice: $("minPrice").value,
     maxPrice: $("maxPrice").value,
     freeShipping: $("freeShipping").checked,
@@ -292,7 +293,8 @@ function renderCategories(base, active) {
 
 function renderActiveFilters(active) {
   const chips = [];
-  if (active.q) chips.push(["query", "검색: " + active.q]);
+  const shownQuery = state.mode === "live" ? state.query : active.q;
+  if (shownQuery) chips.push(["query", "검색: " + shownQuery]);
   if (active.category !== "all")
     chips.push(["category", categoryName(active.category)]);
   if (active.source !== "all")
@@ -655,7 +657,10 @@ function renderDetail(detail) {
     detailRow("원산지", detail.detail?.origin),
     detailRow("제조사", detail.detail?.manufacturer),
     detailRow("모델명", detail.detail?.model),
-    detailRow("판매자", [detail.seller?.nick, detail.seller?.company].filter(Boolean).join(" · ")),
+    detailRow(
+      "판매자",
+      [...new Set([detail.seller?.nick, detail.seller?.company].filter(Boolean))].join(" · "),
+    ),
     detailRow(
       "반품 배송비",
       detail.returnInfo?.fee === null || detail.returnInfo?.fee === undefined
@@ -802,6 +807,7 @@ function renderSourceFilter() {
       (source) => `<option value="${source.id}">${source.name}</option>`,
     ).join("") +
     '<option value="other">기타 공급사</option>';
+  if (!select.value || select.selectedIndex < 0) select.value = "all";
 }
 
 function cancelLive() {
