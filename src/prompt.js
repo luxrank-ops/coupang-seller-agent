@@ -89,7 +89,7 @@ async function callGemini(model, info, env, fetcher) {
     {
       method: "POST",
       signal: AbortSignal.timeout(GEMINI_ATTEMPT_TIMEOUT_MS),
-      redirect: "error",
+      redirect: "manual",
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": env.GEMINI_API_KEY,
@@ -123,7 +123,7 @@ async function callOpenai(info, env, fetcher) {
   const response = await fetcher("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     signal: AbortSignal.timeout(GEMINI_ATTEMPT_TIMEOUT_MS),
-    redirect: "error",
+    redirect: "manual",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,
