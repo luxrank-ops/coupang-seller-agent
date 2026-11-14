@@ -889,7 +889,8 @@ async function searchLive(append = false) {
     const response = await fetch("/api/products?" + params, {
       signal: AbortSignal.any([
         liveController.signal,
-        AbortSignal.timeout(20000),
+        // 오너클랜 검색 API는 응답이 20초를 넘기는 경우가 있어 더 기다린다.
+        AbortSignal.timeout(source === "ownerclan" ? 45000 : 20000),
       ]),
     });
     const data = await response.json();

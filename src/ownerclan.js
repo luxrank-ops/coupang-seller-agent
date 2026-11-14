@@ -13,7 +13,12 @@ const GRAPHQL_URL = "https://api.ownerclan.com/v1/graphql";
 const UA = "CoupangSellerAgent/2.0 (+https://coupang-seller-agent.luxrank.workers.dev)";
 
 // 아이솔레이트 메모리 캐시 — 토큰은 약 한 달 유효하다.
-let tokenCache = { token: "", expiresAt: 0 };
+let tokenCache = { token: "", expiresAt: 0, account: "" };
+
+/** 테스트용: 캐시된 JWT를 비운다. */
+export function resetOwnerclanTokenCache() {
+  tokenCache = { token: "", expiresAt: 0, account: "" };
+}
 
 export function ownerclanConfigured(env = {}) {
   return Boolean(
@@ -28,7 +33,12 @@ export async function getOwnerclanToken(env, fetcher = fetch) {
       "오너클랜 판매사 API 인증 정보(아이디·비밀번호)가 서버에 없습니다.",
       503,
     );
-  if (tokenCache.token && tokenCache.expiresAt > Date.now())
+  const account = env.OWNERCLAN_USERNAME + "\u0000" + env.OWNERCLAN_PASSWORD;
+  if (
+    tokenCache.token &&
+    tokenCache.account === account &&
+    tokenCache.expiresAt > Date.now()
+  )
     return tokenCache.token;
   let response;
   try {
@@ -50,7 +60,7 @@ export async function getOwnerclanToken(env, fetcher = fetch) {
   } catch {
     throw new SourcingError("오너클랜 인증 서버에 연결하지 못했습니다.", 502);
   }
-  const text = (await response.text()).slice(0, 20000);
+  const text = (await response.text()).slice(0, 20000).trim();
   if (!response.ok)
     throw new SourcingError(
       "오너클랜 로그인에 실패했습니다(HTTP " +
@@ -58,22 +68,32 @@ export async function getOwnerclanToken(env, fetcher = fetch) {
         "). 판매사 아이디·비밀번호를 확인해주세요.",
       response.status === 401 || response.status === 400 ? 401 : 502,
     );
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new SourcingError("오너클랜 인증 응답을 해석할 수 없습니다.");
+  // 인증 엔드포인트는 JWT를 본문에 그대로(plain text) 돌려준다.
+  let token = "";
+  if (/^[\w-]+\.[\w-]+\.[\w-]+$/.test(text)) token = text;
+  else {
+    try {
+      const data = JSON.parse(text);
+      token =
+        (typeof data === "string" && data) ||
+        data?.token ||
+        data?.accessToken ||
+        data?.jwt ||
+        data?.data?.token ||
+        "";
+    } catch {
+      token = "";
+    }
   }
-  const token =
-    (typeof data === "string" && data) ||
-    data?.token ||
-    data?.accessToken ||
-    data?.jwt ||
-    data?.data?.token ||
-    "";
   if (!token || typeof token !== "string")
-    throw new SourcingError("오너클랜 인증 응답에 토큰이 없습니다.");
-  tokenCache = { token, expiresAt: Date.now() + 20 * 24 * 3600 * 1000 };
+    throw new SourcingError(
+      "오너클랜 인증 응답에 토큰이 없습니다(HTTP " + response.status + ").",
+    );
+  tokenCache = {
+    token,
+    account,
+    expiresAt: Date.now() + 20 * 24 * 3600 * 1000,
+  };
   return token;
 }
 
@@ -127,14 +147,19 @@ export async function searchOwnerclan(env, params, fetcher = fetch) {
         "User-Agent": UA,
       },
       body: JSON.stringify({ query: SEARCH_QUERY, variables }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(24000),
     });
-  } catch {
+  } catch (error) {
+    if (error?.name === "TimeoutError")
+      throw new SourcingError(
+        "오너클랜 검색 응답이 24초 안에 오지 않았습니다. 오너클랜 API가 느릴 때 발생하며, 잠시 후 다시 시도하거나 다른 소싱처를 이용해주세요.",
+        504,
+      );
     throw new SourcingError("오너클랜 API에 연결하지 못했습니다.", 502);
   }
   const text = (await response.text()).slice(0, 1_000_000);
   if (response.status === 401) {
-    tokenCache = { token: "", expiresAt: 0 };
+    tokenCache = { token: "", expiresAt: 0, account: "" };
     throw new SourcingError(
       "오너클랜 토큰이 만료되었거나 거부되었습니다. 다시 시도해주세요.",
       401,

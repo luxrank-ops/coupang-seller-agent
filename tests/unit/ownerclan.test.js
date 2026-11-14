@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { searchOwnerclan, normalizeOwnerclanItem, ownerclanConfigured } from "../../src/ownerclan.js";
+import {
+  searchOwnerclan,
+  normalizeOwnerclanItem,
+  ownerclanConfigured,
+  resetOwnerclanTokenCache,
+} from "../../src/ownerclan.js";
 
 test("ownerclan normalization keeps real option stock and category", () => {
   const normalized = normalizeOwnerclanItem({
@@ -40,7 +45,31 @@ test("ownerclan configuration requires an account or token", async () => {
   );
 });
 
+test("ownerclan accepts the plain-text JWT the auth endpoint returns", async () => {
+  const calls = [];
+  const fetcher = async (url, init) => {
+    calls.push({ url, init });
+    if (String(url).includes("auth.ownerclan.com"))
+      return new Response("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJoYWtkb3J5NzUifQ.c2lnbmF0dXJl", {
+        status: 200,
+        headers: { "Content-Type": "text/plain" },
+      });
+    return new Response(JSON.stringify({ data: { allItems: { edges: [], pageInfo: {} } } }), { status: 200 });
+  };
+  const result = await searchOwnerclan(
+    { OWNERCLAN_USERNAME: "hakdory75", OWNERCLAN_PASSWORD: "pw" },
+    new URLSearchParams({ q: "수납" }),
+    fetcher,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(
+    calls[1].init.headers.Authorization,
+    "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJoYWtkb3J5NzUifQ.c2lnbmF0dXJl",
+  );
+});
+
 test("ownerclan authenticates then queries allItems with the bearer token", async () => {
+  resetOwnerclanTokenCache();
   const calls = [];
   const fetcher = async (url, init) => {
     calls.push({ url, init });
@@ -85,6 +114,7 @@ test("ownerclan authenticates then queries allItems with the bearer token", asyn
 });
 
 test("ownerclan reports API errors and expired tokens instead of inventing products", async () => {
+  resetOwnerclanTokenCache();
   const apiError = async (url) => {
     if (String(url).includes("auth.ownerclan.com"))
       return new Response(JSON.stringify({ token: "t" }), { status: 200 });
