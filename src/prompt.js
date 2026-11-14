@@ -32,6 +32,113 @@ function templateSeo(info) {
   };
 }
 
+// 무료 티어 모델은 혼잡(503)·할당량(429)으로 일시 실패하므로 예비 모델까지 순차 시도한다.
+const GEMINI_FALLBACK_MODELS = [
+  "gemini-3.5-flash-lite",
+  "gemini-flash-lite-latest",
+  "gemini-3.6-flash",
+];
+const GEMINI_ATTEMPT_TIMEOUT_MS = 14000;
+
+function geminiModelChain(env) {
+  const primary = env.GEMINI_MODEL || "gemini-3.5-flash";
+  return [primary, ...GEMINI_FALLBACK_MODELS.filter((m) => m !== primary)];
+}
+
+function pickResult(provider, data) {
+  const text =
+    provider === "gemini"
+      ? data.candidates?.[0]?.content?.parts?.[0]?.text
+      : data.choices?.[0]?.message?.content;
+  if (typeof text !== "string" || !text.trim()) throw new Error("empty");
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start < 0 || end <= start) throw new Error("json");
+    parsed = JSON.parse(text.slice(start, end + 1));
+  }
+  if (
+    !parsed ||
+    typeof parsed.productName !== "string" ||
+    !parsed.productName.trim() ||
+    !Array.isArray(parsed.searchTags) ||
+    !Array.isArray(parsed.sellingPoints)
+  )
+    throw new Error("shape");
+  return {
+    productName: parsed.productName.slice(0, 200),
+    searchTags: parsed.searchTags
+      .filter((tag) => typeof tag === "string")
+      .slice(0, 20)
+      .map((tag) => tag.slice(0, 50)),
+    sellingPoints: parsed.sellingPoints
+      .filter((point) => typeof point === "string")
+      .slice(0, 3)
+      .map((point) => point.slice(0, 500)),
+  };
+}
+
+async function callGemini(model, info, env, fetcher) {
+  const response = await fetcher(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+    {
+      method: "POST",
+      signal: AbortSignal.timeout(GEMINI_ATTEMPT_TIMEOUT_MS),
+      redirect: "error",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": env.GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text:
+                  COUPANG_SELLER_SYSTEM_PROMPT +
+                  "\n입력: " +
+                  JSON.stringify(info),
+              },
+            ],
+          },
+        ],
+        generationConfig: { responseMimeType: "application/json" },
+      }),
+    },
+  );
+  if (!response.ok) {
+    const error = new Error("gemini HTTP " + response.status);
+    error.status = response.status;
+    throw error;
+  }
+  return pickResult("gemini", await response.json());
+}
+
+async function callOpenai(info, env, fetcher) {
+  const response = await fetcher("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    signal: AbortSignal.timeout(GEMINI_ATTEMPT_TIMEOUT_MS),
+    redirect: "error",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: env.OPENAI_MODEL || "gpt-4o-mini",
+      messages: [
+        { role: "system", content: COUPANG_SELLER_SYSTEM_PROMPT },
+        { role: "user", content: JSON.stringify(info) },
+      ],
+      response_format: { type: "json_object" },
+    }),
+  });
+  if (!response.ok) throw new Error("openai HTTP " + response.status);
+  return pickResult("openai", await response.json());
+}
+
 export async function generateProductSeo(info, env, fetcher = fetch) {
   const provider = env.LLM_PROVIDER || "gemini";
   const configured =
@@ -44,89 +151,30 @@ export async function generateProductSeo(info, env, fetcher = fetch) {
       mode: "template",
       note: "AI 미연결: 입력한 정보만으로 만든 기본 초안입니다. 판매 전 사실을 확인하세요.",
     };
-  let response;
-  try {
-    const common = {
-      method: "POST",
-      signal: AbortSignal.timeout(15000),
-      redirect: "error",
-    };
-    if (provider === "gemini") {
-      const model = env.GEMINI_MODEL || "gemini-2.5-flash";
-      response = await fetcher(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-        {
-          ...common,
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": env.GEMINI_API_KEY,
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text:
-                      COUPANG_SELLER_SYSTEM_PROMPT +
-                      "\n입력: " +
-                      JSON.stringify(info),
-                  },
-                ],
-              },
-            ],
-            generationConfig: { responseMimeType: "application/json" },
-          }),
-        },
-      );
-    } else {
-      response = await fetcher("https://api.openai.com/v1/chat/completions", {
-        ...common,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: env.OPENAI_MODEL || "gpt-4o-mini",
-          messages: [
-            { role: "system", content: COUPANG_SELLER_SYSTEM_PROMPT },
-            { role: "user", content: JSON.stringify(info) },
-          ],
-          response_format: { type: "json_object" },
-        }),
-      });
+
+  const attempts =
+    provider === "gemini"
+      ? geminiModelChain(env).map((model) => () =>
+          callGemini(model, info, env, fetcher),
+        )
+      : [() => callOpenai(info, env, fetcher)];
+
+  let lastError;
+  const deadline = Date.now() + 25000;
+  for (const attempt of attempts) {
+    if (Date.now() > deadline) break;
+    try {
+      const result = await attempt();
+      return {
+        result,
+        mode: "ai",
+        note: "AI 초안입니다. 상품명·표현·인증·권리를 직접 검토하세요.",
+      };
+    } catch (error) {
+      lastError = error;
     }
-    if (!response.ok) throw new Error("provider HTTP");
-    const data = await response.json();
-    const result = JSON.parse(
-      provider === "gemini"
-        ? data.candidates?.[0]?.content?.parts?.[0]?.text
-        : data.choices?.[0]?.message?.content,
-    );
-    if (
-      typeof result.productName !== "string" ||
-      !result.productName.trim() ||
-      !Array.isArray(result.searchTags) ||
-      !Array.isArray(result.sellingPoints)
-    )
-      throw new Error("provider shape");
-    return {
-      result: {
-        productName: result.productName.slice(0, 200),
-        searchTags: result.searchTags
-          .filter((tag) => typeof tag === "string")
-          .slice(0, 20)
-          .map((tag) => tag.slice(0, 50)),
-        sellingPoints: result.sellingPoints
-          .filter((point) => typeof point === "string")
-          .slice(0, 3)
-          .map((point) => point.slice(0, 500)),
-      },
-      mode: "ai",
-      note: "AI 초안입니다. 상품명·표현·인증·권리를 직접 검토하세요.",
-    };
-  } catch {
-    throw new Error(
-      "AI 초안을 생성하지 못했습니다. 잠시 후 다시 시도해주세요.",
-    );
   }
+  throw new Error("AI 초안을 생성하지 못했습니다. 잠시 후 다시 시도해주세요.", {
+    cause: lastError,
+  });
 }
