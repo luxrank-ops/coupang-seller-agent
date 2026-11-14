@@ -368,7 +368,7 @@ function renderEmpty(priceValid) {
     !state.liveQuery &&
     !state.liveError
   )
-    return `${icon("search")}<h2>도매꾹에서 어떤 상품을 찾을까요?</h2><p>위 검색창에 키워드를 입력하고 상품 검색을 눌러주세요.<br>배송비·최소 주문 수량은 상품 상세에서 확인할 수 있습니다.</p>`;
+    return `${icon("search")}<h2>${sourceLabel()}에서 어떤 상품을 찾을까요?</h2><p>위 검색창에 키워드를 입력하고 상품 검색을 눌러주세요.<br>배송비·최소 주문 수량은 상품 상세에서 확인할 수 있습니다.</p>`;
   const q = active.q
     ? `“${esc(active.q)}”에 맞는 상품이 없어요`
     : "조건에 맞는 상품이 없어요";
@@ -377,6 +377,11 @@ function renderEmpty(priceValid) {
 
 function renderCatalog() {
   if (state.view === "preparation") return;
+  const liveOption = document.querySelector('#dataMode option[value="live"]');
+  if (liveOption)
+    liveOption.textContent = state.idea
+      ? "아이디어 상품"
+      : sourceLabel() + " 실시간 조회";
   const base = currentProducts(),
     active = filters(),
     priceValid = validatePriceFilters();
@@ -430,7 +435,9 @@ function renderCatalog() {
         .join("")
     : '<div class="empty-state">' + renderEmpty(priceValid) + "</div>";
   let pages = "";
-  if (totalPages > 1) {
+  // 오너클랜은 커서 페이지네이션이라 숫자 페이지 이동이 없고 '더 가져오기'만 쓴다.
+  const cursorPaged = state.mode === "live" && state.source === "ownerclan";
+  if (totalPages > 1 && !cursorPaged) {
     pages = `<button class="page-button" data-page="${state.page - 1}" aria-label="이전 페이지" ${state.page === 1 ? "disabled" : ""}>${icon("chevron-left")}</button>`;
     const visible = new Set(
       [1, totalPages, state.page - 1, state.page, state.page + 1].filter(
@@ -447,7 +454,7 @@ function renderCatalog() {
     pages += `<button class="page-button" data-page="${state.page + 1}" aria-label="다음 페이지" ${state.page === totalPages ? "disabled" : ""}>${icon("chevron-right")}</button>`;
   }
   if (state.mode === "live" && state.view === "discover" && state.liveHasMore)
-    pages += `<button class="button button-secondary" data-action="load-live" ${state.liveLoading ? "disabled" : ""}>${state.liveLoading ? "조회 중…" : "도매꾹에서 더 가져오기 " + icon("plus")}</button>`;
+    pages += `<button class="button button-secondary" data-action="load-live" ${state.liveLoading ? "disabled" : ""}>${state.liveLoading ? "조회 중…" : sourceLabel() + "에서 더 가져오기 " + icon("plus")}</button>`;
   $("pagination").innerHTML = pages;
 }
 
@@ -773,6 +780,8 @@ async function loadMeta() {
     renderSourceFilter();
     renderIntegrationStatus();
     renderCatalog();
+    // 판매 준비 화면은 AI·연동 상태 문구를 다시 그려야 정확히 표시된다.
+    if (state.view === "preparation") renderPreparation();
   }
 }
 
