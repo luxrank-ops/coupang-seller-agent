@@ -458,6 +458,17 @@ export async function collectTrending(env = {}, params, options = {}) {
     ? parseOnchannelCards(onchannelPage.html).slice(0, 5)
     : [];
 
+  // 검색어가 있으면 순위 목록도 그 검색어에 맞는 상품만 남긴다.
+  const needle = q.normalize("NFKC").toLocaleLowerCase("ko-KR");
+  const matchesQuery = (name) =>
+    !needle ||
+    String(name || "")
+      .normalize("NFKC")
+      .toLocaleLowerCase("ko-KR")
+      .includes(needle);
+  const ownerclanRanked = ownerclanItems.filter((item) => matchesQuery(item.name));
+  const onchannelRanked = onchannelRank.items.filter((item) => matchesQuery(item.name));
+
   let topics;
   if (q) topics = [q];
   else {
@@ -491,11 +502,11 @@ export async function collectTrending(env = {}, params, options = {}) {
   const baselineDays = { domeggook: null, ownerclan: null, onchannel: null };
 
   // 오너클랜 100
-  if (ownerclanItems.length) {
-    const ranks = new Map(ownerclanItems.map((item) => [item.sku, item.rank]));
+  if (ownerclanRanked.length) {
+    const ranks = new Map(ownerclanRanked.map((item) => [item.sku, item.rank]));
     const baseline = await resolveBaseline(cache, origin, "ownerclan:100", ranks, ctx);
     baselineDays.ownerclan = baseline?.day || null;
-    for (const item of ownerclanItems) {
+    for (const item of ownerclanRanked) {
       const prevRank = baseline ? rankOf(baseline.ranks, item.sku) : null;
       const rankDelta = baseline && prevRank ? prevRank - item.rank : null;
       const product = baseProduct({
@@ -541,13 +552,13 @@ export async function collectTrending(env = {}, params, options = {}) {
   }
 
   // 온채널 사이트 판매랭킹 TOP10 + (검색어가 있으면) 베스트순 목록
-  if (onchannelRank.items.length) {
+  if (onchannelRanked.length) {
     const ranks = new Map(
-      onchannelRank.items.map((item) => ["onchannel-" + item.num, item.rank]),
+      onchannelRanked.map((item) => ["onchannel-" + item.num, item.rank]),
     );
     const baseline = await resolveBaseline(cache, origin, "onchannel:rank", ranks, ctx);
     baselineDays.onchannel = baseline?.day || null;
-    for (const item of onchannelRank.items) {
+    for (const item of onchannelRanked) {
       const key = "onchannel-" + item.num;
       const prevRank = baseline ? rankOf(baseline.ranks, key) : null;
       const rankDelta = baseline && prevRank ? prevRank - item.rank : null;
@@ -745,7 +756,8 @@ export async function collectTrending(env = {}, params, options = {}) {
         ok: Boolean(ownerclanPage?.ok),
         reachable: Boolean(ownerclanPage?.ok),
         requested: wantOwnerclan,
-        items: ownerclanItems.length,
+        items: ownerclanRanked.length,
+        ranked: ownerclanItems.length,
         keywords: ownerclanKeywords,
         error: ownerclanPage && !ownerclanPage.ok ? ownerclanPage.error : null,
       },
@@ -753,7 +765,8 @@ export async function collectTrending(env = {}, params, options = {}) {
         ok: Boolean(onchannelPage?.ok),
         reachable: Boolean(onchannelPage?.ok),
         requested: wantOnchannel,
-        rankItems: onchannelRank.items.length,
+        rankItems: onchannelRanked.length,
+        ranked: onchannelRank.items.length,
         basisDate: onchannelRank.basisDate,
         keywords: onchannelKeywords,
         error: onchannelPage && !onchannelPage.ok ? onchannelPage.error : null,

@@ -208,6 +208,24 @@ test("collectTrending merges ownerclan, onchannel and domeggook rankings", async
   }
 });
 
+test("collectTrending keeps only ranking entries that match the searched keyword", async () => {
+  const stub = stubFetch();
+  try {
+    const result = await collectTrending(
+      { DOMEGGOOK_API_KEY: "test" },
+      new URLSearchParams({ source: "all", q: "크리스마스", limit: "20" }),
+      { fetcher: globalThis.fetch, origin: "https://app.example" },
+    );
+    assert.equal(result.sources.ownerclan.ranked, 3);
+    assert.equal(result.sources.ownerclan.items, 0);
+    assert.equal(result.sources.onchannel.ranked, 10);
+    assert.equal(result.sources.onchannel.rankItems, 0);
+    assert.ok(result.products.every((product) => product.sourceId === "domeggook"));
+  } finally {
+    stub.restore();
+  }
+});
+
 test("collectTrending stock=verified keeps only confirmed in-stock items", async () => {
   const stub = stubFetch();
   try {
