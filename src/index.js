@@ -10,6 +10,12 @@ import { probeOwnerclan, searchOwnerclan, ownerclanConfigured } from "./ownercla
 import { searchIdeaProducts } from "./ideaDiscovery.js";
 import { buildRegistrationQueue, collectTrending } from "./trending.js";
 import {
+  buildAgentsStatus,
+  listRuns,
+  recordRun,
+  runAgent,
+} from "./agents.js";
+import {
   probeWing,
   registerSellerProduct,
   wingConfigured,
@@ -132,6 +138,9 @@ export default {
         "/api/idea-products": "GET",
         "/api/trending": "GET",
         "/api/trending/queue": "GET",
+        "/api/agents/status": "GET",
+        "/api/agents/run": "POST",
+        "/api/agents/runs": "MULTI",
         "/api/wing/status": "GET",
         "/api/generate-seo": "POST",
         "/api/register-product": "POST",
@@ -139,10 +148,16 @@ export default {
       const method = routeMethods[url.pathname];
       if (!method)
         return json({ ok: false, error: "요청한 API를 찾을 수 없습니다." }, 404);
-      if (request.method !== method)
+      if (method === "MULTI") {
+        if (request.method !== "GET" && request.method !== "POST")
+          return json({ ok: false, error: "GET 또는 POST 요청만 지원합니다." }, 405, {
+            Allow: "GET, POST",
+          });
+      } else if (request.method !== method) {
         return json({ ok: false, error: `${method} 요청만 지원합니다.` }, 405, {
           Allow: method,
         });
+      }
 
       if (url.pathname === "/api/health") {
         const [domeggook, ownerclan, wing] = await Promise.all([
@@ -232,6 +247,56 @@ export default {
           notes: trending.notes,
           endpoint: url.origin + "/api/trending/queue",
         });
+      }
+
+      if (url.pathname === "/api/agents/status") {
+        const registeredToday = url.searchParams.get("registeredToday") || "0";
+        const build = () =>
+          buildAgentsStatus(env, {
+            origin: url.origin,
+            ctx,
+            registeredToday,
+            fetcher: fetch,
+          });
+        // 수동 새로고침(fresh=1)은 캐시를 건너뛰고 새로 스캔한다.
+        if (url.searchParams.get("fresh") === "1") return json(await build());
+        return await cachedJson(
+          ctx,
+          url,
+          "agents:status:v1:" + registeredToday,
+          build,
+          90,
+        );
+      }
+
+      if (url.pathname === "/api/agents/run") {
+        const body = await readJson(request);
+        const result = await runAgent(env, body.team, {
+          origin: url.origin,
+          ctx,
+          registeredToday:
+            body.registeredToday ?? url.searchParams.get("registeredToday") ?? "0",
+          fetcher: fetch,
+        });
+        return json(result);
+      }
+
+      if (url.pathname === "/api/agents/runs") {
+        if (request.method === "GET")
+          return json({
+            ok: true,
+            runs: await listRuns(url.origin, {
+              team: url.searchParams.get("team") || "",
+              limit: url.searchParams.get("limit") || "8",
+            }),
+          });
+        const body = await readJson(request);
+        const run = await recordRun(
+          env,
+          { ...body, source: body.source === "api" ? "api" : "external" },
+          { origin: url.origin, ctx },
+        );
+        return json({ ok: true, run }, 201);
       }
 
       if (url.pathname === "/api/wing/status") {

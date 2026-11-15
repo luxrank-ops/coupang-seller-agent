@@ -4141,3 +4141,245 @@ body:has(dialog[open]) {
     flex: 1 1 140px;
   }
 }
+
+/* ── AI 운영팀 뷰 ─────────────────────────────────────────────────── */
+.agents-hero {
+  align-items: center;
+}
+.agents-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 0 0 16px;
+}
+.agents-chip {
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 2px;
+}
+.agents-chip span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.agents-chip strong {
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 800;
+}
+.agents-chip.good strong {
+  color: var(--green);
+}
+.agents-chip.warn strong {
+  color: var(--warning);
+}
+.agents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin: 0 0 22px;
+}
+.agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+.agent-card.limited {
+  border-color: #f0cdd8;
+}
+.agent-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.agent-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 12px;
+  background: var(--primary-light);
+  color: var(--primary);
+}
+.agent-glyph .icon {
+  width: 20px;
+  height: 20px;
+}
+.agent-title {
+  flex: 1;
+  min-width: 0;
+}
+.agent-title h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.3;
+}
+.agent-title p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.agent-headline {
+  margin: 0;
+  color: var(--secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.agent-metrics {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+}
+.agent-metric {
+  padding: 9px 10px;
+  border-radius: 11px;
+  background: #f6f7fb;
+  min-width: 0;
+}
+.agent-metric dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.agent-metric dd {
+  margin: 1px 0 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.agent-metric small {
+  display: block;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+  margin-top: 1px;
+}
+.agent-rules {
+  font-size: 12.5px;
+  color: var(--secondary);
+}
+.agent-rules summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--secondary);
+}
+.agent-rules ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.agent-card-foot {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+.agent-card-foot .button {
+  font-size: 13px;
+  padding: 8px 12px;
+}
+.agent-lastrun {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.agents-runs {
+  margin: 0 0 16px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+.agents-runs-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.agents-runs-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.agents-runs-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.agents-run-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.agents-run-item {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--green);
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+.agents-run-item.blocked {
+  border-left-color: var(--danger);
+}
+.agents-run-item.paused,
+.agents-run-item.empty {
+  border-left-color: var(--warning);
+}
+.agents-run-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12.5px;
+}
+.agents-run-top strong {
+  color: var(--ink);
+}
+.agents-run-action {
+  color: var(--secondary);
+}
+.agents-run-time {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.agents-run-item p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.agents-run-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+.agents-storage-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+@media (max-width: 760px) {
+  .agents-grid {
+    grid-template-columns: 1fr;
+  }
+}

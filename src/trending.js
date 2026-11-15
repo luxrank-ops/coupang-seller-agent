@@ -804,18 +804,25 @@ export function interleaveBySource(sorted, limit) {
 export const DAILY_QUOTA = 3;
 export const HARD_CAP = 5;
 
-const BLOCK_WORDS = [
+/** 지재권(브랜드·캐릭터) 키워드 — 제목에 있으면 자동 등록 대상에서 제외한다. */
+export const BRAND_WORDS = [
   "나이키", "아디다스", "뉴발란스", "푸마", "반스", "컨버스", "크록스",
   "디즈니", "산리오", "포켓몬", "짱구", "카카오프렌즈", "라인프렌즈", "뽀로로",
   "스투시", "노스페이스", "몽클레어", "구찌", "루이비통", "샤넬", "에르메스",
   "코치", "폴로", "챔피언", "아이폰", "갤럭시", "다이슨", "발뮤다", "르크루제",
   "스타벅스", "코카콜라", "펩시", "맥도날드", "레고", "닌텐도", "플레이스테이션",
+];
+
+/** 쿠팡에서 팔 수 없거나 별도 자격이 필요한 품목 키워드. */
+export const BANNED_WORDS = [
   "성인용품", "성인용", "19금", "주류", "담배", "전자담배", "의약품", "처방",
   "건강기능식품", "다이어트약", "화장품", "기능성화장품", "식품", "먹거리",
   "도검", "칼날", "화약", "총기", "복제", "정품아님", "짝퉁", "이미테이션",
 ];
 
-const REVIEW_WORDS = [
+export const BLOCK_WORDS = [...BRAND_WORDS, ...BANNED_WORDS];
+
+export const REVIEW_WORDS = [
   "유아", "아동", "어린이", "키즈", "베이비", "신생아", "젖병", "분유", "유모차",
   "전기", "전자", "충전", "배터리", "온열", "발열", "전기요", "전기장판", "led",
   "의료", "마사지", "온도계", "살균", "방역", "방한", "난방", "히터", "선풍기",
@@ -940,6 +947,8 @@ export function buildRegistrationQueue(products, options = {}) {
       rankScope: product.rankScope || null,
       rankDelta: product.rankDelta ?? null,
       signals: product.signals || [],
+      blockWords: block,
+      reviewWords: review,
       estimate,
       checks,
       verdict,
@@ -955,6 +964,16 @@ export function buildRegistrationQueue(products, options = {}) {
   );
   const ready = evaluated.filter((item) => item.verdict === "ready");
   const remaining = Math.max(0, DAILY_QUOTA - registeredToday);
+  const verdictCounts = { ready: 0, review: 0, block: 0 };
+  const blockedHits = new Map();
+  for (const item of evaluated) {
+    verdictCounts[item.verdict] += 1;
+    if (item.verdict === "block") {
+      for (const word of item.blockWords || []) {
+        if (word) blockedHits.set(word, (blockedHits.get(word) || 0) + 1);
+      }
+    }
+  }
   return {
     ok: true,
     date: kstDay(),
@@ -964,6 +983,12 @@ export function buildRegistrationQueue(products, options = {}) {
     remaining,
     recommendedNow: Math.min(limit, remaining),
     readyCount: ready.length,
+    evaluatedTotal: evaluated.length,
+    verdictCounts,
+    blockedKeywords: [...blockedHits.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([word, count]) => ({ word, count })),
     candidates: evaluated.slice(0, limit),
     rules: [
       "하루 자동 등록은 기본 3건, 절대 상한 5건(사용자 기존 원칙: 일일 2~3건 수기 등록으로 14종 판매중, 제재 없음).",

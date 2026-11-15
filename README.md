@@ -22,6 +22,12 @@ Cloudflare Workers 기반의 상품 탐색·비교·판매 준비 앱입니다. 
   - 실재고 필터는 판매중이 확인된 상품(도매꾹)만 남깁니다. 오너클랜·온채널은 재고를 공개하지 않아 ‘재고 확인 필요’로 표시됩니다.
 - **자동 등록 안전 큐**: `GET /api/trending/queue`가 급등 후보를 제재 회피 기준으로 `ready`(자동 등록 가능) / `review`(사람 확인) / `block`(제외)으로 나눠 줍니다. 하루 기본 3건·최대 5건, 실재고·MOQ 1·배송비 확인·목표마진 이익 5,000원 이상·지재권 키워드 배제·KC 검토를 검사하고, 쿠팡 최저가 -100원 흑자는 등록 직전 확인 항목으로 남깁니다. 피클 정기 액션이 브라우저로 WING에 등록할 때 이 큐를 사용합니다.
 - **연동 상태 표시**: `/api/health`와 화면 상단 칩이 도매꾹·오너클랜·WING·AI 연결 여부를 실제 점검 결과로 보여줍니다. 연결되지 않은 소싱처는 결과에 섞이지 않습니다(도매매·온채널·도매토피아·1688·Alibaba는 외부 검색 바로가기만 제공).
+- **🤖 AI 운영팀(4단계 에이전트 팀)**: 사이드바 ‘AI 운영팀’ 탭이 1팀 발굴 → 2팀 검수·가격 → 3팀 등록 → 4팀 판매·CS 감시의 상태·규칙·오늘 큐를 한 화면에 보여줍니다.
+  - `GET /api/agents/status` — 4팀 상태, 규칙, 오늘 큐 요약(`readyCount`, `dailyQuota`, `hardCap`, `verdictCounts`)·최근 실행 로그(`?registeredToday=`, `?fresh=1`은 캐시 건너뜀).
+  - `POST /api/agents/run` — `{"team":"discovery|audit|registration|monitoring"}`을 즉시 실행해 최신 스캔·검수 결과와 실행 로그를 돌려줍니다. 등록·주문 같은 외부 변경은 하지 않습니다.
+  - `GET /api/agents/runs` / `POST /api/agents/runs` — 실행 로그 조회와 기록(허용 IP의 피클 브릿지가 점검 결과를 남길 때 사용).
+  - 4팀은 Cloudflare Worker의 출구 IP가 매 요청 달라 쿠팡 Open API가 403으로 막히는 사실을 그대로 표시하고, 허용 IP(`WING_REGISTERED_IP`)와 점검 체크리스트·로그만 제공합니다.
+  - 실행 로그는 KV·D1이 없는 배포라 Cache API + 인메모리에 최근 40건(7일) 보관합니다(콜로별 최선 노력).
 - 모바일/데스크톱 반응형, 외부 CDN 없이 자체 CSS·JS·Pretendard 폰트 사용.
 
 ## 데이터의 의미와 제한
@@ -146,6 +152,8 @@ src/index.js          Worker API 및 정적 자산 라우팅
 src/sourcing.js       도매꾹 Open API 어댑터(목록 4.1·상세 4.6)
 src/ownerclan.js      오너클랜 판매사 GraphQL 어댑터(JWT)
 src/wing.js           쿠팡 WING Open API 서명·등록 클라이언트
+src/trending.js       급등 순위 수집·순위 스냅샷·안전 등록 큐
+src/agents.js         4단계 AI 운영팀 상태·수동 실행·실행 로그
 src/ideaDiscovery.js  실시간 아이디어 키워드 발굴
 tests/fixtures/       테스트 전용 예시 상품(앱 응답에는 사용하지 않음)
 src/prompt.js         사실 기반 기본 초안 / 선택적 AI 제공자

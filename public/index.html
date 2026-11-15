@@ -44,6 +44,9 @@
         <button class="nav-item" data-view="trending">
           <span data-icon="flame"></span>급등 상품<span class="nav-new">HOT</span>
         </button>
+        <button class="nav-item" data-view="agents">
+          <span data-icon="bot"></span>AI 운영팀<span class="nav-new">4팀</span>
+        </button>
         <button class="nav-item" data-view="favorites">
           <span data-icon="heart"></span>관심 상품<span
             class="nav-count"
@@ -447,6 +450,77 @@
             <span data-icon="calculator"></span>순위는 각 도매몰이 공개한
             판매·인기 순위이며 판매량 예측이 아닙니다. 공급가·배송비·재고·법정
             인증은 등록 전에 공급사에서 최종 확인하세요.
+          </p>
+        </section>
+
+        <section id="agentsView" hidden aria-labelledby="agentsHeading">
+          <section class="hero agents-hero">
+            <div class="hero-copy">
+              <div class="eyebrow">
+                <span class="eyebrow-line"></span>AI OPERATIONS TEAM · 4 SHIFTS
+              </div>
+              <h1 id="agentsHeading">
+                발굴부터 판매 감시까지,<br />4팀이 맡습니다<span class="accent-dot"
+                  >.</span
+                >
+              </h1>
+              <p>
+                1팀 발굴 → 2팀 검수·가격 → 3팀 등록 → 4팀 판매·CS 감시.<br
+                  class="mobile-break"
+                />
+                하루 3~5건 안전 한도와 적자·지재권 차단 규칙 안에서만 움직입니다.
+              </p>
+              <div class="hero-meta" id="agentsMeta">
+                <span
+                  ><span data-icon="bot"></span>안전 한도 완전 자동형
+                  <strong>하루 3~5건</strong></span
+                >
+              </div>
+            </div>
+            <div class="trending-hero-actions">
+              <button class="button button-primary" data-action="agents-refresh">
+                <span data-icon="refresh"></span>지금 새로 고침
+              </button>
+              <button
+                class="button button-secondary"
+                data-action="agents-run"
+                data-team="discovery"
+              >
+                <span data-icon="search"></span>발굴 즉시 실행
+              </button>
+            </div>
+          </section>
+
+          <div
+            id="agentsError"
+            class="alert alert-error"
+            role="alert"
+            hidden
+          ></div>
+          <p
+            id="agentsStatus"
+            class="trending-status"
+            aria-live="polite"
+          ></p>
+          <div id="agentsSummary" class="agents-summary"></div>
+          <div id="agentsGrid" class="agents-grid"></div>
+          <div id="agentsQueue" class="trend-queue" hidden></div>
+          <section
+            class="agents-runs"
+            aria-labelledby="agentsRunsHeading"
+          >
+            <div class="agents-runs-head">
+              <h2 id="agentsRunsHeading">실행 로그</h2>
+              <span id="agentsRunsMeta"></span>
+            </div>
+            <ul id="agentsRunList" class="agents-run-list"></ul>
+          </section>
+          <div id="agentsNotes" class="trend-notes"></div>
+          <p class="estimate-disclaimer">
+            <span data-icon="info"></span>이 화면은 자동화의 상태와 한도를
+            보여줍니다. 실제 쿠팡 등록·판매 조회는 허용 IP의 피클 정기
+            액션(07:00·08:30)이 수행하며, 서버가 확인하지 못한 값은
+            ‘미점검’으로 표시합니다.
           </p>
         </section>
 

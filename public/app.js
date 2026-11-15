@@ -44,7 +44,7 @@ try {
 const saved = loadWorkspace(browserStorage);
 const urlParams = new URLSearchParams(location.search);
 const state = {
-  view: ["favorites", "preparation"].includes(location.hash.slice(1))
+  view: ["favorites", "preparation", "agents"].includes(location.hash.slice(1))
     ? location.hash.slice(1)
     : "discover",
   mode: saved.mode,
@@ -92,6 +92,15 @@ const state = {
     stock: false,
     singleOrder: false,
     freeShipping: false,
+    queue: null,
+    queueOpen: false,
+    queueLoading: false,
+  },
+  agents: {
+    data: null,
+    loading: false,
+    error: "",
+    busy: "",
     queue: null,
     queueOpen: false,
     queueLoading: false,
@@ -163,6 +172,7 @@ function currentProducts() {
 function renderCurrentView() {
   if (state.view === "preparation") renderPreparation();
   else if (state.view === "trending") renderTrending();
+  else if (state.view === "agents") renderAgents();
   else renderCatalog();
 }
 
@@ -496,7 +506,7 @@ function resetFilters(includeQuery = false) {
 }
 
 function setView(view, initial = false) {
-  if (!["discover", "trending", "favorites", "preparation"].includes(view))
+  if (!["discover", "trending", "favorites", "preparation", "agents"].includes(view))
     return;
   if (!initial && state.view !== view) {
     flushDraft();
@@ -518,21 +528,27 @@ function setView(view, initial = false) {
     trending: "급등 상품",
     favorites: "관심 상품",
     preparation: "판매 준비",
+    agents: "AI 운영팀",
   }[view];
   document.title = $("pageLabel").textContent + " · 쿠팡 셀러 AI 비서";
-  $("catalogView").hidden = view === "preparation" || view === "trending";
+  $("catalogView").hidden =
+    view === "preparation" || view === "trending" || view === "agents";
   $("trendingView").hidden = view !== "trending";
+  $("agentsView").hidden = view !== "agents";
   $("prepareView").hidden = view !== "preparation";
   $("discoverHero").hidden = view !== "discover";
   $("favoritesHero").hidden = view !== "favorites";
   $("sourceSection").hidden = view !== "discover";
-  $("dataMode").hidden = view === "favorites";
+  $("dataMode").hidden = view === "favorites" || view === "agents";
   renderBadges();
   renderSources();
   if (view === "preparation") renderPreparation();
   else if (view === "trending") {
     renderTrending();
     if (!state.trending.items.length && !state.trending.loading) loadTrending();
+  } else if (view === "agents") {
+    renderAgents();
+    if (!state.agents.data && !state.agents.loading) loadAgents();
   } else renderCatalog();
   syncUrl();
   if (!initial) window.scrollTo({ top: 0, behavior: "auto" });
@@ -1140,6 +1156,240 @@ async function loadTrendQueue() {
   } finally {
     trending.queueLoading = false;
     renderTrending();
+  }
+}
+
+const AGENT_ICONS = {
+  discovery: "search",
+  audit: "shield",
+  registration: "bag",
+  monitoring: "paw",
+};
+const AGENT_STATES = {
+  active: { tone: "ready", label: "가동 중" },
+  attention: { tone: "review", label: "확인 필요" },
+  paused: { tone: "review", label: "한도 소진" },
+  limited: { tone: "block", label: "제약 있음" },
+};
+
+function renderAgentsSummary(agents) {
+  const data = agents.data;
+  const box = $("agentsSummary");
+  if (!data) {
+    box.innerHTML = "";
+    return;
+  }
+  const queue = data.queue;
+  const chips = [
+    { label: "오늘 등록", value: queue.registeredToday + "건", tone: "" },
+    { label: "남은 한도", value: queue.remaining + "건", tone: queue.remaining ? "good" : "warn" },
+    { label: "등록 후보(ready)", value: queue.readyCount + "건", tone: queue.readyCount ? "good" : "warn" },
+    { label: "안전 한도", value: queue.dailyQuota + " / 상한 " + queue.hardCap + "건", tone: "" },
+    {
+      label: "수집",
+      value: data.teams.find((team) => team.id === "discovery")?.metrics?.[0]?.value || "-",
+      tone: "",
+    },
+  ];
+  box.innerHTML = chips
+    .map(
+      (chip) =>
+        `<div class="agents-chip ${chip.tone}"><span>${esc(chip.label)}</span><strong>${esc(chip.value)}</strong></div>`,
+    )
+    .join("");
+}
+
+function renderAgentsRuns(agents) {
+  const data = agents.data;
+  const list = $("agentsRunList");
+  const meta = $("agentsRunsMeta");
+  if (!data) {
+    list.innerHTML = "";
+    meta.textContent = "";
+    return;
+  }
+  meta.textContent = data.storage?.backend
+    ? `${data.storage.backend} · 최근 ${data.storage.maxRuns}건`
+    : "";
+  const runs = data.runs || [];
+  if (!runs.length) {
+    list.innerHTML =
+      '<li class="agents-run-empty">아직 실행 기록이 없습니다. 팀 카드의 실행 버튼을 누르면 이곳에 기록됩니다.</li>';
+    return;
+  }
+  const teamName = Object.fromEntries(data.teams.map((team) => [team.id, team.name]));
+  list.innerHTML = runs
+    .map(
+      (run) => `<li class="agents-run-item ${esc(run.state)}">
+        <div class="agents-run-top"><strong>${esc(teamName[run.team] || run.team)}</strong><span class="agents-run-action">${esc(run.action)}</span><span class="agents-run-time">${esc(kstTime(run.finishedAt))}${run.ms !== null && run.ms !== undefined ? ` · ${Math.round(run.ms / 100) / 10}초` : ""}${run.source === "external" ? " · 브릿지 기록" : ""}</span></div>
+        <p>${esc(run.summary)}</p>
+      </li>`,
+    )
+    .join("");
+}
+
+function renderAgentsQueue(agents) {
+  const box = $("agentsQueue");
+  if (!agents.queueOpen) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  box.hidden = false;
+  if (agents.queueLoading) {
+    box.innerHTML =
+      '<div class="trend-queue-head"><strong>오늘 등록 큐</strong></div><p class="trend-queue-hint"><span class="spinner"></span>후보를 다시 계산하는 중입니다…</p>';
+    return;
+  }
+  const queue = agents.queue;
+  if (!queue) {
+    box.innerHTML =
+      '<div class="trend-queue-head"><strong>오늘 등록 큐</strong></div><p class="trend-queue-hint">후보를 불러오지 못했습니다.</p>';
+    return;
+  }
+  const rows = (queue.candidates || [])
+    .map((item) => {
+      const verdict = VERDICTS[item.verdict] || VERDICTS.review;
+      const failed = (item.checks || []).filter((check) => !check.ok);
+      return `<li class="trend-queue-item"><div class="trend-queue-top"><span class="verdict ${verdict.tone}">${verdict.label}</span><span class="trend-queue-name">${esc(item.name)}</span></div><p class="trend-queue-figures">${esc(item.sourceName)} · 공급가 ${money(item.wholesalePrice)} · 권장가 ${money(item.estimate?.salePrice)} · 예상 이익 ${item.estimate ? money(item.estimate.netProfit) : "계산 불가"}${item.rank ? ` · ${esc(item.rankScope || "")} ${item.rank}위` : ""}</p><ul class="trend-checks">${failed.map((check) => `<li>${esc(check.pending ? "확인 필요" : "미충족")} · ${esc(check.label)} (${esc(check.note)})</li>`).join("") || "<li>검수 항목을 모두 통과했습니다.</li>"}</ul></li>`;
+    })
+    .join("");
+  box.innerHTML = `<div class="trend-queue-head"><strong>오늘 등록 큐</strong><span>하루 안전 ${queue.dailyQuota}건 · 상한 ${queue.hardCap}건 · 오늘 등록 ${queue.registeredToday}건 · 남은 ${queue.remaining}건</span></div><ul class="trend-queue-list">${rows || '<li class="trend-queue-item">조건에 맞는 후보가 없습니다.</li>'}</ul>`;
+}
+
+function renderAgents() {
+  const agents = state.agents;
+  const data = agents.data;
+  $("agentsError").hidden = !agents.error;
+  $("agentsError").innerHTML = agents.error
+    ? esc(agents.error) + '<button data-action="agents-refresh">다시 시도</button>'
+    : "";
+  if (data?.scanAt) {
+    $("agentsMeta").innerHTML =
+      `<span>${icon("bot")}안전 한도 완전 자동형 <strong>하루 ${data.queue.dailyQuota}~${data.queue.hardCap}건</strong></span>` +
+      `<span class="meta-dot">·</span><span>마지막 스캔 ${esc(kstTime(data.scanAt))}</span>` +
+      `<span class="meta-dot">·</span><span>07:00 · 08:30 자동</span>`;
+  }
+  $("agentsStatus").textContent = agents.loading
+    ? "4팀 상태와 오늘 안전 큐를 계산하는 중입니다…"
+    : data
+      ? `4팀 가동 · 검수 대상 ${data.queue.evaluatedTotal}건 · ready ${data.queue.readyCount}건 · 실행 로그 ${data.runs.length}건`
+      : "";
+  renderAgentsSummary(agents);
+  const grid = $("agentsGrid");
+  if (!data) {
+    grid.innerHTML = agents.loading
+      ? '<div class="loading-state"><span class="spinner"></span>4팀 상태를 불러오고 있어요</div>'
+      : "";
+    renderAgentsQueue(agents);
+    renderAgentsRuns(agents);
+    return;
+  }
+  grid.innerHTML = data.teams
+    .map((team) => {
+      const state = AGENT_STATES[team.state] || AGENT_STATES.attention;
+      const busy = agents.busy === team.id;
+      const metrics = (team.metrics || [])
+        .map(
+          (metric) =>
+            `<div class="agent-metric"><dt>${esc(metric.label)}</dt><dd>${esc(String(metric.value))}</dd><small>${esc(metric.hint || "")}</small></div>`,
+        )
+        .join("");
+      const actions = (team.actions || [])
+        .map((action) =>
+          action.id === "queue"
+            ? `<button class="button button-secondary" data-action="agents-queue">${icon("columns")}${esc(action.label)}</button>`
+            : `<button class="button button-secondary" data-action="agents-run" data-team="${esc(team.id)}" ${busy ? "disabled" : ""}>${icon("refresh")}${busy ? "실행 중…" : esc(action.label)}</button>`,
+        )
+        .join("");
+      const lastRun = team.lastRun;
+      return `<article class="agent-card ${esc(team.state)}">
+        <header class="agent-card-head"><span class="agent-glyph">${icon(AGENT_ICONS[team.id] || "bot")}</span><div class="agent-title"><h2>${esc(team.name)}</h2><p>${esc(team.role)}</p></div><span class="verdict ${state.tone}">${state.label}</span></header>
+        <p class="agent-headline">${esc(team.headline)}</p>
+        <dl class="agent-metrics">${metrics}</dl>
+        <details class="agent-rules"><summary>운영 규칙 ${(team.rules || []).length}개</summary><ul>${(team.rules || []).map((rule) => `<li>${esc(rule)}</li>`).join("")}</ul></details>
+        <footer class="agent-card-foot">${actions}<span class="agent-lastrun">${lastRun ? `마지막 ${esc(kstTime(lastRun.finishedAt))} · ${esc(lastRun.action)}` : "실행 기록 없음"}</span></footer>
+      </article>`;
+    })
+    .join("");
+  renderAgentsQueue(agents);
+  renderAgentsRuns(agents);
+  $("agentsNotes").innerHTML = data.notes?.length
+    ? `<details><summary>이 화면이 확인한 것과 확인하지 못한 것</summary><ul>${data.notes.map((note) => `<li>${esc(note)}</li>`).join("")}</ul>${data.storage?.note ? `<p class="agents-storage-note">${esc(data.storage.note)}</p>` : ""}</details>`
+    : "";
+}
+
+async function loadAgents(fresh = false) {
+  const agents = state.agents;
+  agents.loading = true;
+  agents.error = "";
+  renderAgents();
+  try {
+    const response = await fetch("/api/agents/status" + (fresh ? "?fresh=1" : ""), {
+      signal: AbortSignal.timeout(60000),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok)
+      throw new Error(data.error || "AI 운영팀 상태를 불러오지 못했습니다.");
+    if (!Array.isArray(data.teams) || data.teams.length !== 4)
+      throw new Error("AI 운영팀 응답 형식이 올바르지 않습니다.");
+    agents.data = data;
+  } catch (error) {
+    if (error.name !== "AbortError")
+      agents.error = error.message || "AI 운영팀 상태를 불러오지 못했습니다.";
+  } finally {
+    agents.loading = false;
+    renderAgents();
+  }
+}
+
+async function runAgentTeam(team) {
+  const agents = state.agents;
+  if (agents.busy) return;
+  agents.busy = team;
+  agents.error = "";
+  renderAgents();
+  try {
+    const response = await fetch("/api/agents/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ team }),
+      signal: AbortSignal.timeout(90000),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok)
+      throw new Error(data.error || "에이전트를 실행하지 못했습니다.");
+    if (data.status) agents.data = data.status;
+    const name = agents.data?.teams?.find((entry) => entry.id === team)?.name || team;
+    toast(`${name} 실행 완료 — ${data.run.summary}`);
+  } catch (error) {
+    agents.error = error.message || "에이전트를 실행하지 못했습니다.";
+    toast("에이전트 실행 실패 — " + agents.error);
+  } finally {
+    agents.busy = "";
+    renderAgents();
+  }
+}
+
+async function loadAgentsQueue() {
+  const agents = state.agents;
+  agents.queueOpen = true;
+  agents.queueLoading = true;
+  renderAgentsQueue(agents);
+  try {
+    const response = await fetch("/api/trending/queue?limit=3", {
+      signal: AbortSignal.timeout(60000),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok)
+      throw new Error(data.error || "등록 큐를 불러오지 못했습니다.");
+    agents.queue = data;
+  } catch (error) {
+    agents.queue = null;
+    agents.error = error.name === "AbortError" ? "" : error.message || "등록 큐를 불러오지 못했습니다.";
+  } finally {
+    agents.queueLoading = false;
+    renderAgents();
   }
 }
 
@@ -1859,6 +2109,15 @@ document.addEventListener("click", (event) => {
       break;
     case "trend-queue":
       loadTrendQueue();
+      break;
+    case "agents-refresh":
+      loadAgents(true);
+      break;
+    case "agents-run":
+      runAgentTeam(target.dataset.team || "");
+      break;
+    case "agents-queue":
+      loadAgentsQueue();
       break;
     case "load-live":
       searchLive(true);
