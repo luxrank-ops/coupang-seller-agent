@@ -372,7 +372,7 @@ function rankOf(ranks, key) {
   return Number.isFinite(value) ? value : null;
 }
 
-function signalsFor({ rank, rankScope, rankDelta, isNew, prevRank, topic, crossSource }) {
+function signalsFor({ rank, rankScope, rankDelta, isNew, prevRank, topic, crossLabel }) {
   const signals = [`${rankScope} ${rank}위`];
   if (topic) signals.push(`인기 키워드 ‘${topic}’`);
   if (isNew) signals.push("직전 집계 신규 진입");
@@ -380,7 +380,7 @@ function signalsFor({ rank, rankScope, rankDelta, isNew, prevRank, topic, crossS
   else if (rankDelta === 0) signals.push("직전 집계와 같은 순위");
   else if (rankDelta && rankDelta < 0) signals.push(`직전 집계보다 ${Math.abs(rankDelta)}계단 하락`);
   else if (prevRank) signals.push(`${prevRank}위 → ${rank}위`);
-  if (crossSource) signals.push("도매꾹·온채널 동시 인기");
+  if (crossLabel) signals.push(crossLabel);
   return signals;
 }
 
@@ -643,8 +643,14 @@ export async function collectTrending(env = {}, params, options = {}) {
     const scopeKey = "domeggook:" + run.topic;
     const baseline = await resolveBaseline(cache, origin, scopeKey, ranks, ctx);
     baselineDays.domeggook = baseline?.day || baselineDays.domeggook;
-    const crossSource =
-      ownerclanKeywords.includes(run.topic) || onchannelKeywords.includes(run.topic);
+    const crossSources = [
+      ownerclanKeywords.includes(run.topic) ? "오너클랜" : null,
+      onchannelKeywords.includes(run.topic) ? "온채널" : null,
+    ].filter(Boolean);
+    const crossSource = crossSources.length > 0;
+    const crossLabel = crossSource
+      ? "도매꾹·" + crossSources.join("·") + " 동시 인기"
+      : null;
     run.products.forEach((product, index) => {
       const rank = index + 1;
       const prevRank = baseline ? rankOf(baseline.ranks, product.sku) : null;
@@ -676,7 +682,7 @@ export async function collectTrending(env = {}, params, options = {}) {
               isNew,
               prevRank,
               topic: run.topic,
-              crossSource,
+              crossLabel,
             }),
           },
         ),

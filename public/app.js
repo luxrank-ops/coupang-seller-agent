@@ -89,7 +89,7 @@ const state = {
     meta: null,
     source: "all",
     query: "",
-    stock: true,
+    stock: false,
     singleOrder: false,
     freeShipping: false,
     queue: null,
