@@ -251,21 +251,14 @@ export default {
 
       if (url.pathname === "/api/agents/status") {
         const registeredToday = url.searchParams.get("registeredToday") || "0";
-        const build = () =>
-          buildAgentsStatus(env, {
+        // 실행 로그·현재 상태를 그대로 보여주려고 캐시하지 않고 매번 계산한다(도매몰 3곳 스캔 약 2초).
+        return json(
+          await buildAgentsStatus(env, {
             origin: url.origin,
             ctx,
             registeredToday,
             fetcher: fetch,
-          });
-        // 수동 새로고침(fresh=1)은 캐시를 건너뛰고 새로 스캔한다.
-        if (url.searchParams.get("fresh") === "1") return json(await build());
-        return await cachedJson(
-          ctx,
-          url,
-          "agents:status:v1:" + registeredToday,
-          build,
-          90,
+          }),
         );
       }
 

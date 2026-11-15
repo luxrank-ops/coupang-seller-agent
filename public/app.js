@@ -1018,6 +1018,24 @@ function kstTime(iso) {
   });
 }
 
+/** 실행 로그·스캔 시각 표기(MM-DD HH:MM, KST). */
+function kstShort(iso) {
+  if (!iso) return "기록 없음";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "기록 없음";
+  const kst = new Date(date.getTime() + 9 * 3600 * 1000);
+  const pad = (number) => String(number).padStart(2, "0");
+  return (
+    pad(kst.getUTCMonth() + 1) +
+    "-" +
+    pad(kst.getUTCDate()) +
+    " " +
+    pad(kst.getUTCHours()) +
+    ":" +
+    pad(kst.getUTCMinutes())
+  );
+}
+
 function trendQueryParams() {
   const trending = state.trending;
   const params = new URLSearchParams({ source: trending.source, limit: "30" });
@@ -1221,7 +1239,7 @@ function renderAgentsRuns(agents) {
   list.innerHTML = runs
     .map(
       (run) => `<li class="agents-run-item ${esc(run.state)}">
-        <div class="agents-run-top"><strong>${esc(teamName[run.team] || run.team)}</strong><span class="agents-run-action">${esc(run.action)}</span><span class="agents-run-time">${esc(kstTime(run.finishedAt))}${run.ms !== null && run.ms !== undefined ? ` · ${Math.round(run.ms / 100) / 10}초` : ""}${run.source === "external" ? " · 브릿지 기록" : ""}</span></div>
+        <div class="agents-run-top"><strong>${esc(teamName[run.team] || run.team)}</strong><span class="agents-run-action">${esc(run.action)}</span><span class="agents-run-time">${esc(kstShort(run.finishedAt))}${run.ms !== null && run.ms !== undefined ? ` · ${Math.round(run.ms / 100) / 10}초` : ""}${run.source === "external" ? " · 브릿지 기록" : ""}</span></div>
         <p>${esc(run.summary)}</p>
       </li>`,
     )
@@ -1267,7 +1285,7 @@ function renderAgents() {
   if (data?.scanAt) {
     $("agentsMeta").innerHTML =
       `<span>${icon("bot")}안전 한도 완전 자동형 <strong>하루 ${data.queue.dailyQuota}~${data.queue.hardCap}건</strong></span>` +
-      `<span class="meta-dot">·</span><span>마지막 스캔 ${esc(kstTime(data.scanAt))}</span>` +
+      `<span class="meta-dot">·</span><span>마지막 스캔 ${esc(kstShort(data.scanAt))}</span>` +
       `<span class="meta-dot">·</span><span>07:00 · 08:30 자동</span>`;
   }
   $("agentsStatus").textContent = agents.loading
@@ -1308,7 +1326,7 @@ function renderAgents() {
         <p class="agent-headline">${esc(team.headline)}</p>
         <dl class="agent-metrics">${metrics}</dl>
         <details class="agent-rules"><summary>운영 규칙 ${(team.rules || []).length}개</summary><ul>${(team.rules || []).map((rule) => `<li>${esc(rule)}</li>`).join("")}</ul></details>
-        <footer class="agent-card-foot">${actions}<span class="agent-lastrun">${lastRun ? `마지막 ${esc(kstTime(lastRun.finishedAt))} · ${esc(lastRun.action)}` : "실행 기록 없음"}</span></footer>
+        <footer class="agent-card-foot">${actions}<span class="agent-lastrun">${lastRun ? `마지막 ${esc(kstShort(lastRun.finishedAt))} · ${esc(lastRun.action)}` : "실행 기록 없음"}</span></footer>
       </article>`;
     })
     .join("");

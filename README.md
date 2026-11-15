@@ -23,7 +23,7 @@ Cloudflare Workers 기반의 상품 탐색·비교·판매 준비 앱입니다. 
 - **자동 등록 안전 큐**: `GET /api/trending/queue`가 급등 후보를 제재 회피 기준으로 `ready`(자동 등록 가능) / `review`(사람 확인) / `block`(제외)으로 나눠 줍니다. 하루 기본 3건·최대 5건, 실재고·MOQ 1·배송비 확인·목표마진 이익 5,000원 이상·지재권 키워드 배제·KC 검토를 검사하고, 쿠팡 최저가 -100원 흑자는 등록 직전 확인 항목으로 남깁니다. 피클 정기 액션이 브라우저로 WING에 등록할 때 이 큐를 사용합니다.
 - **연동 상태 표시**: `/api/health`와 화면 상단 칩이 도매꾹·오너클랜·WING·AI 연결 여부를 실제 점검 결과로 보여줍니다. 연결되지 않은 소싱처는 결과에 섞이지 않습니다(도매매·온채널·도매토피아·1688·Alibaba는 외부 검색 바로가기만 제공).
 - **🤖 AI 운영팀(4단계 에이전트 팀)**: 사이드바 ‘AI 운영팀’ 탭이 1팀 발굴 → 2팀 검수·가격 → 3팀 등록 → 4팀 판매·CS 감시의 상태·규칙·오늘 큐를 한 화면에 보여줍니다.
-  - `GET /api/agents/status` — 4팀 상태, 규칙, 오늘 큐 요약(`readyCount`, `dailyQuota`, `hardCap`, `verdictCounts`)·최근 실행 로그(`?registeredToday=`, `?fresh=1`은 캐시 건너뜀).
+  - `GET /api/agents/status` — 4팀 상태, 규칙, 오늘 큐 요약(`readyCount`, `dailyQuota`, `hardCap`, `verdictCounts`)·최근 실행 로그(`?registeredToday=`로 오늘 등록 건수 전달, 상태 캐시 없이 매번 계산).
   - `POST /api/agents/run` — `{"team":"discovery|audit|registration|monitoring"}`을 즉시 실행해 최신 스캔·검수 결과와 실행 로그를 돌려줍니다. 등록·주문 같은 외부 변경은 하지 않습니다.
   - `GET /api/agents/runs` / `POST /api/agents/runs` — 실행 로그 조회와 기록(허용 IP의 피클 브릿지가 점검 결과를 남길 때 사용).
   - 4팀은 Cloudflare Worker의 출구 IP가 매 요청 달라 쿠팡 Open API가 403으로 막히는 사실을 그대로 표시하고, 허용 IP(`WING_REGISTERED_IP`)와 점검 체크리스트·로그만 제공합니다.
