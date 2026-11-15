@@ -4256,8 +4256,9 @@ body:has(dialog[open]) {
 .agent-metric dd {
   margin: 1px 0 0;
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 .agent-metric small {

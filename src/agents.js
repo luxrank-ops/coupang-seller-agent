@@ -334,7 +334,7 @@ function registrationTeam(queue, lastRun) {
   return {
     id: "registration",
     name: "3팀 등록",
-    role: "안전 한도 안에서 WING 등록",
+    role: "일일 안전 한도·오늘 등록 큐 관리",
     state: queue.remaining > 0 ? "active" : "paused",
     headline:
       `하루 기본 ${queue.dailyQuota}건·절대 상한 ${queue.hardCap}건. 오늘 등록 ${queue.registeredToday}건, 남은 한도 ${queue.remaining}건, 지금 등록 가능 ${queue.recommendedNow}건.`,
