@@ -265,7 +265,7 @@ async function writeSnapshot(cache, url, day, ranks) {
  * 오늘 순위를 하루 1회 스냅샷으로 남기고, 직전 집계일의 순위를 기준선으로 읽는다.
  * 기준선이 없으면(첫 배포일) delta는 null이며 UI는 "비교 기준 준비 중"으로 표시한다.
  */
-async function resolveBaseline(cache, origin, scopeKey, ranks, waitUntil) {
+async function resolveBaseline(cache, origin, scopeKey, ranks, ctx) {
   if (!cache) return null;
   const keyOf = (day) =>
     new URL(`/api/_trend-snapshot/${encodeURIComponent(scopeKey)}/${day}`, origin).toString();
@@ -273,7 +273,8 @@ async function resolveBaseline(cache, origin, scopeKey, ranks, waitUntil) {
   const todaySnapshot = await readSnapshot(cache, keyOf(today));
   if (!todaySnapshot) {
     const write = writeSnapshot(cache, keyOf(today), today, ranks);
-    if (typeof waitUntil === "function") waitUntil(write);
+    // ctx.waitUntil은 반드시 ctx에 바인딩해 호출해야 한다(메서드만 떼어 쓰면 예외).
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(write);
     else await write;
   }
   for (let offset = 1; offset <= BASELINE_LOOKBACK_DAYS; offset++) {
@@ -492,7 +493,7 @@ export async function collectTrending(env = {}, params, options = {}) {
   // 오너클랜 100
   if (ownerclanItems.length) {
     const ranks = new Map(ownerclanItems.map((item) => [item.sku, item.rank]));
-    const baseline = await resolveBaseline(cache, origin, "ownerclan:100", ranks, ctx.waitUntil);
+    const baseline = await resolveBaseline(cache, origin, "ownerclan:100", ranks, ctx);
     baselineDays.ownerclan = baseline?.day || null;
     for (const item of ownerclanItems) {
       const prevRank = baseline ? rankOf(baseline.ranks, item.sku) : null;
@@ -544,7 +545,7 @@ export async function collectTrending(env = {}, params, options = {}) {
     const ranks = new Map(
       onchannelRank.items.map((item) => ["onchannel-" + item.num, item.rank]),
     );
-    const baseline = await resolveBaseline(cache, origin, "onchannel:rank", ranks, ctx.waitUntil);
+    const baseline = await resolveBaseline(cache, origin, "onchannel:rank", ranks, ctx);
     baselineDays.onchannel = baseline?.day || null;
     for (const item of onchannelRank.items) {
       const key = "onchannel-" + item.num;
@@ -640,7 +641,7 @@ export async function collectTrending(env = {}, params, options = {}) {
     if (!run.products.length) continue;
     const ranks = new Map(run.products.map((product, index) => [product.sku, index + 1]));
     const scopeKey = "domeggook:" + run.topic;
-    const baseline = await resolveBaseline(cache, origin, scopeKey, ranks, ctx.waitUntil);
+    const baseline = await resolveBaseline(cache, origin, scopeKey, ranks, ctx);
     baselineDays.domeggook = baseline?.day || baselineDays.domeggook;
     const crossSource =
       ownerclanKeywords.includes(run.topic) || onchannelKeywords.includes(run.topic);
