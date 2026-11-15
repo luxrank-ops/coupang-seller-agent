@@ -1324,7 +1324,7 @@ function renderAgents() {
       return `<article class="agent-card ${esc(team.state)}">
         <header class="agent-card-head"><span class="agent-glyph">${icon(AGENT_ICONS[team.id] || "bot")}</span><div class="agent-title"><h2>${esc(team.name)}</h2><p>${esc(team.role)}</p></div><span class="verdict ${state.tone}">${state.label}</span></header>
         <p class="agent-headline">${esc(team.headline)}</p>
-        <dl class="agent-metrics">${metrics}</dl>
+        <dl class="agent-metrics${team.id === "monitoring" ? " two-col" : ""}">${metrics}</dl>
         <details class="agent-rules"><summary>운영 규칙 ${(team.rules || []).length}개</summary><ul>${(team.rules || []).map((rule) => `<li>${esc(rule)}</li>`).join("")}</ul></details>
         <footer class="agent-card-foot">${actions}<span class="agent-lastrun">${lastRun ? `마지막 ${esc(kstShort(lastRun.finishedAt))} · ${esc(lastRun.action)}` : "실행 기록 없음"}</span></footer>
       </article>`;
