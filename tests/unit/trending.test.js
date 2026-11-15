@@ -220,7 +220,12 @@ test("collectTrending keeps only ranking entries that match the searched keyword
     assert.equal(result.sources.ownerclan.items, 0);
     assert.equal(result.sources.onchannel.ranked, 10);
     assert.equal(result.sources.onchannel.rankItems, 0);
-    assert.ok(result.products.every((product) => product.sourceId === "domeggook"));
+    // 온채널 베스트순 결과는 키워드 페이지 자체가 검색 결과라 이름에 키워드가 없어도 남는다.
+    assert.ok(
+      result.products.every(
+        (product) => product.sourceId === "domeggook" || product.rank === null,
+      ),
+    );
   } finally {
     stub.restore();
   }
@@ -236,7 +241,12 @@ test("collectTrending stock=verified keeps only confirmed in-stock items", async
     );
     assert.ok(result.products.length > 0);
     assert.ok(result.products.every((product) => product.inStock === true));
-    assert.ok(result.products.every((product) => product.sourceId === "domeggook"));
+    // 온채널 베스트순 결과는 키워드 페이지 자체가 검색 결과라 이름에 키워드가 없어도 남는다.
+    assert.ok(
+      result.products.every(
+        (product) => product.sourceId === "domeggook" || product.rank === null,
+      ),
+    );
   } finally {
     stub.restore();
   }
