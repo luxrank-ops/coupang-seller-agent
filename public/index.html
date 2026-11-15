@@ -41,6 +41,9 @@
             >NEW</span
           >
         </button>
+        <button class="nav-item" data-view="trending">
+          <span data-icon="flame"></span>급등 상품<span class="nav-new">HOT</span>
+        </button>
         <button class="nav-item" data-view="favorites">
           <span data-icon="heart"></span>관심 상품<span
             class="nav-count"
@@ -355,6 +358,96 @@
               </p>
             </section>
           </div>
+        </section>
+
+        <section id="trendingView" hidden aria-labelledby="trendingHeading">
+          <section class="hero trending-hero">
+            <div class="hero-copy">
+              <div class="eyebrow">
+                <span class="eyebrow-line"></span>RISING NOW
+              </div>
+              <h1 id="trendingHeading">
+                지금 잘 나가는 상품,<br />도매 순위로 먼저 보세요<span
+                  class="accent-dot"
+                  >.</span
+                >
+              </h1>
+              <p>
+                도매꾹 인기상품순·오너클랜 100·온채널 판매랭킹을 한 번에 모아<br
+                  class="mobile-break"
+                />
+                순위가 오른 상품부터 보여드립니다.
+              </p>
+              <div class="hero-meta" id="trendingMeta">
+                <span
+                  ><span data-icon="flame"></span>도매꾹·오너클랜·온채널
+                  <strong>공개 순위</strong></span
+                >
+              </div>
+            </div>
+            <div class="trending-hero-actions">
+              <button class="button button-primary" data-action="trend-refresh">
+                <span data-icon="sparkles"></span>지금 새로 고침
+              </button>
+              <button class="button button-secondary" data-action="trend-queue">
+                <span data-icon="shield"></span>오늘 등록 후보
+              </button>
+            </div>
+          </section>
+
+          <section class="trending-controls" aria-label="급등 상품 조건">
+            <form id="trendForm" class="search-form" role="search">
+              <span data-icon="search" class="search-leading"></span
+              ><label class="sr-only" for="trendInput"
+                >급등 상품 검색어</label
+              ><input
+                id="trendInput"
+                type="search"
+                maxlength="40"
+                placeholder="키워드로 급등 상품 찾기 (예: 크리스마스)"
+                autocomplete="off"
+              /><button type="submit" class="button button-primary">
+                <span data-icon="search"></span>급등 검색
+              </button>
+            </form>
+            <div
+              id="trendSources"
+              class="trend-chips"
+              role="group"
+              aria-label="소싱처 선택"
+            ></div>
+            <div class="trend-toggles">
+              <label class="checkbox-label"
+                ><input id="trendStock" type="checkbox" checked /><span
+                  >실재고 확인된 상품만</span
+                ></label
+              ><label class="checkbox-label"
+                ><input id="trendSingleOrder" type="checkbox" /><span
+                  >1개부터 주문</span
+                ></label
+              ><label class="checkbox-label"
+                ><input id="trendFreeShipping" type="checkbox" /><span
+                  >무료배송</span
+                ></label
+              >
+            </div>
+          </section>
+
+          <div
+            id="trendError"
+            class="alert alert-error"
+            role="alert"
+            hidden
+          ></div>
+          <p id="trendStatus" class="trending-status" aria-live="polite"></p>
+          <div id="trendNotes" class="trend-notes"></div>
+          <div id="trendQueue" class="trend-queue" hidden></div>
+          <div id="trendGrid" class="product-grid"></div>
+          <p class="estimate-disclaimer">
+            <span data-icon="calculator"></span>순위는 각 도매몰이 공개한
+            판매·인기 순위이며 판매량 예측이 아닙니다. 공급가·배송비·재고·법정
+            인증은 등록 전에 공급사에서 최종 확인하세요.
+          </p>
         </section>
 
         <section id="prepareView" hidden aria-labelledby="prepareHeading">

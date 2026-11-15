@@ -82,6 +82,20 @@ const state = {
   activeProduct: saved.selected[0]?.id || null,
   pendingImport: null,
   storageFailed: saved.warning,
+  trending: {
+    items: [],
+    loading: false,
+    error: "",
+    meta: null,
+    source: "all",
+    query: "",
+    stock: true,
+    singleOrder: false,
+    freeShipping: false,
+    queue: null,
+    queueOpen: false,
+    queueLoading: false,
+  },
 };
 let toastTimer,
   liveController,
@@ -146,11 +160,20 @@ function currentProducts() {
   return state.mode === "imported" ? state.imported : state.liveProducts;
 }
 
+function renderCurrentView() {
+  if (state.view === "preparation") renderPreparation();
+  else if (state.view === "trending") renderTrending();
+  else renderCatalog();
+}
+
 function findProduct(id) {
   return (
-    [...state.imported, ...state.liveProducts].find(
-      (product) => product.id === id,
-    ) ||
+    [
+      ...state.imported,
+      ...state.liveProducts,
+      ...state.trending.items,
+    ].find((product) => product.id === id) ||
+    state.trending.queue?.candidates?.find((item) => item.id === id)?.product ||
     state.selected.get(id) ||
     state.favorites.get(id) ||
     state.compare.get(id)
@@ -344,8 +367,8 @@ function renderProductCard(product) {
         ? "공급사 배송비 0원"
         : "배송 " + money(product.shippingFee);
   return `<article class="product-card ${selected ? "is-selected" : ""}" data-product="${id}">
-    <div class="product-image-wrap"><button class="product-art-button" data-action="detail" data-id="${id}" aria-label="${esc(product.name)} 상세 보기">${productVisual(product)}</button><div class="product-badges"><span class="product-badge ${product.dataKind === "live" ? "live" : ""}">${kindLabel(product)}</span><span class="product-badge fulfillment">${FULFILLMENTS[product.fulfillment] || "방식 확인 필요"}</span></div><button class="favorite-button" data-action="favorite" data-id="${id}" aria-label="${esc(product.name)} ${favorite ? "관심 상품 해제" : "관심 상품 저장"}" aria-pressed="${favorite}">${icon("heart")}</button></div>
-    <div class="product-info"><div class="product-source"><span class="source-mini-dot"></span>${esc(source.name)}${product.dataKind === "demo" ? '<span class="source-inline-note">· 소싱처 예시</span>' : ""}</div><button class="product-name" data-action="detail" data-id="${id}">${esc(product.name)}</button><div class="product-price-row"><strong class="product-price">${product.wholesalePrice === null ? "확인 필요" : product.wholesalePrice.toLocaleString("ko-KR") + "<small>원</small>"}</strong><span class="price-caption">${product.dataKind === "demo" ? "예시 공급가" : "공급가"}</span></div><div class="product-terms"><span>최소 ${product.minOrder === null ? "수량 확인" : product.minOrder.toLocaleString("ko-KR") + "개"}</span><span class="terms-divider">·</span><span>${shipping}</span></div><div class="product-estimate ${estimate ? "" : "unknown"}">${estimate ? `<span>권장가 <b>${money(estimate.salePrice)}</b></span><span>예상 이익 <strong>+${money(estimate.netProfit)}</strong></span>` : "<span>배송비·공급가 확인 후 이익 계산</span>"}</div></div>
+    <div class="product-image-wrap"><button class="product-art-button" data-action="detail" data-id="${id}" aria-label="${esc(product.name)} 상세 보기">${productVisual(product)}</button><div class="product-badges"><span class="product-badge ${product.dataKind === "live" ? "live" : ""}">${kindLabel(product)}</span><span class="product-badge fulfillment">${FULFILLMENTS[product.fulfillment] || "방식 확인 필요"}</span>${product.rank ? `<span class="product-badge trend">${icon("flame")}${product.rank}위</span>` : ""}${product.rankDelta > 0 ? `<span class="product-badge rising">▲${product.rankDelta}</span>` : product.isNew && product.baselineDay ? '<span class="product-badge fresh">NEW</span>' : ""}</div><button class="favorite-button" data-action="favorite" data-id="${id}" aria-label="${esc(product.name)} ${favorite ? "관심 상품 해제" : "관심 상품 저장"}" aria-pressed="${favorite}">${icon("heart")}</button></div>
+    <div class="product-info"><div class="product-source"><span class="source-mini-dot"></span>${esc(source.name)}${product.dataKind === "demo" ? '<span class="source-inline-note">· 소싱처 예시</span>' : ""}</div>${Array.isArray(product.signals) && product.signals.length ? `<p class="product-signals">${product.signals.slice(0, 3).map((signal) => `<span>${esc(signal)}</span>`).join("")}</p>` : ""}<button class="product-name" data-action="detail" data-id="${id}">${esc(product.name)}</button><div class="product-price-row"><strong class="product-price">${product.wholesalePrice === null ? "확인 필요" : product.wholesalePrice.toLocaleString("ko-KR") + "<small>원</small>"}</strong><span class="price-caption">${product.dataKind === "demo" ? "예시 공급가" : "공급가"}</span></div><div class="product-terms"><span>최소 ${product.minOrder === null ? "수량 확인" : product.minOrder.toLocaleString("ko-KR") + "개"}</span><span class="terms-divider">·</span><span>${shipping}</span></div><div class="product-estimate ${estimate ? "" : "unknown"}">${estimate ? `<span>권장가 <b>${money(estimate.salePrice)}</b></span><span>예상 이익 <strong>+${money(estimate.netProfit)}</strong></span>` : "<span>배송비·공급가 확인 후 이익 계산</span>"}</div></div>
     <div class="product-actions"><button class="compare-button" data-action="compare" data-id="${id}" aria-label="${esc(product.name)} 비교 ${compared ? "해제" : "추가"}" aria-pressed="${compared}">${icon("columns")}비교</button><button class="select-button" data-action="select" data-id="${id}" aria-label="${esc(product.name)} 판매 후보 ${selected ? "해제" : "선택"}" aria-pressed="${selected}">${icon(selected ? "check" : "plus")}${selected ? "선택됨" : "선택하기"}</button></div>
   </article>`;
 }
@@ -473,7 +496,8 @@ function resetFilters(includeQuery = false) {
 }
 
 function setView(view, initial = false) {
-  if (!["discover", "favorites", "preparation"].includes(view)) return;
+  if (!["discover", "trending", "favorites", "preparation"].includes(view))
+    return;
   if (!initial && state.view !== view) {
     flushDraft();
     stopSeo();
@@ -491,11 +515,13 @@ function setView(view, initial = false) {
   });
   $("pageLabel").textContent = {
     discover: "상품 소싱",
+    trending: "급등 상품",
     favorites: "관심 상품",
     preparation: "판매 준비",
   }[view];
   document.title = $("pageLabel").textContent + " · 쿠팡 셀러 AI 비서";
-  $("catalogView").hidden = view === "preparation";
+  $("catalogView").hidden = view === "preparation" || view === "trending";
+  $("trendingView").hidden = view !== "trending";
   $("prepareView").hidden = view !== "preparation";
   $("discoverHero").hidden = view !== "discover";
   $("favoritesHero").hidden = view !== "favorites";
@@ -504,7 +530,10 @@ function setView(view, initial = false) {
   renderBadges();
   renderSources();
   if (view === "preparation") renderPreparation();
-  else renderCatalog();
+  else if (view === "trending") {
+    renderTrending();
+    if (!state.trending.items.length && !state.trending.loading) loadTrending();
+  } else renderCatalog();
   syncUrl();
   if (!initial) window.scrollTo({ top: 0, behavior: "auto" });
 }
@@ -539,7 +568,7 @@ function toggleFavorite(id) {
   }
   const success = persist();
   renderBadges();
-  renderCatalog();
+  renderCurrentView();
   refreshOpenDialogs();
   restoreFocus();
   toast(
@@ -570,8 +599,7 @@ function toggleSelected(id) {
   }
   const success = persist();
   renderBadges();
-  if (state.view === "preparation") renderPreparation();
-  else renderCatalog();
+  renderCurrentView();
   refreshOpenDialogs();
   restoreFocus();
   toast(
@@ -596,7 +624,7 @@ function toggleCompare(id) {
     state.compare.set(id, product);
   }
   renderBadges();
-  renderCatalog();
+  renderCurrentView();
   if ($("compareDialog").open) renderComparison();
   else
     toast(
@@ -944,6 +972,175 @@ function refreshLive() {
   if (state.mode === "live" && state.view === "discover" && state.query)
     searchLive();
   else renderCatalog();
+}
+
+/* ── 급등 상품 ─────────────────────────────────────────────────────── */
+
+const TREND_SOURCES = [
+  { id: "all", name: "전체" },
+  { id: "domeggook", name: "도매꾹" },
+  { id: "ownerclan", name: "오너클랜" },
+  { id: "onchannel", name: "온채널" },
+];
+const VERDICTS = {
+  ready: { label: "자동 등록 가능", tone: "ready" },
+  review: { label: "사람 확인 필요", tone: "review" },
+  block: { label: "등록 제외", tone: "block" },
+};
+
+function kstTime(iso) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function trendQueryParams() {
+  const trending = state.trending;
+  const params = new URLSearchParams({ source: trending.source, limit: "30" });
+  if (trending.query) params.set("q", trending.query);
+  if (trending.stock) params.set("stock", "verified");
+  if (trending.singleOrder) params.set("singleOrder", "true");
+  if (trending.freeShipping) params.set("freeShipping", "true");
+  return params;
+}
+
+function renderTrendSources() {
+  $("trendSources").innerHTML = TREND_SOURCES.map(
+    (source) =>
+      `<button type="button" class="trend-chip ${state.trending.source === source.id ? "active" : ""}" data-trend-source="${source.id}" aria-pressed="${state.trending.source === source.id}">${esc(source.name)}</button>`,
+  ).join("");
+}
+
+function renderTrendQueue() {
+  const trending = state.trending;
+  const box = $("trendQueue");
+  if (!trending.queueOpen) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  box.hidden = false;
+  if (trending.queueLoading) {
+    box.innerHTML = '<div class="trend-queue-head"><strong>오늘 등록 후보</strong></div><p class="trend-queue-hint"><span class="spinner"></span>안전 기준으로 후보를 고르는 중입니다…</p>';
+    return;
+  }
+  const queue = trending.queue;
+  if (!queue) {
+    box.innerHTML = '<div class="trend-queue-head"><strong>오늘 등록 후보</strong></div><p class="trend-queue-hint">후보를 불러오지 못했습니다.</p>';
+    return;
+  }
+  const rows = (queue.candidates || [])
+    .map((item) => {
+      const verdict = VERDICTS[item.verdict] || VERDICTS.review;
+      const product = state.trending.items.find((entry) => entry.id === item.id) || item.product;
+      const failed = (item.checks || []).filter((check) => !check.ok);
+      return `<li class="trend-queue-item"><div class="trend-queue-top"><span class="verdict ${verdict.tone}">${verdict.label}</span><span class="trend-queue-name">${esc(item.name)}</span></div><p class="trend-queue-figures">${item.sourceName} · 공급가 ${money(item.wholesalePrice)} · 권장가 ${money(item.estimate?.salePrice)} · 예상 이익 ${item.estimate ? money(item.estimate.netProfit) : "계산 불가"}${item.rank ? ` · ${esc(item.rankScope || "")} ${item.rank}위` : ""}</p><ul class="trend-checks">${failed.map((check) => `<li>${esc(check.pending ? "확인 필요" : "미충족")} · ${esc(check.label)} (${esc(check.note)})</li>`).join("") || "<li>검수 항목을 모두 통과했습니다.</li>"}</ul>${product ? `<button class="text-button" data-action="select" data-id="${esc(item.id)}">${state.selected.has(item.id) ? "판매 후보에서 빼기" : "판매 후보에 담기"}</button>` : ""}</li>`;
+    })
+    .join("");
+  box.innerHTML = `<div class="trend-queue-head"><strong>오늘 등록 후보</strong><span>하루 안전 수량 ${queue.dailyQuota}건 · 상한 ${queue.hardCap}건 · 오늘 등록 ${queue.registeredToday}건</span></div><p class="trend-queue-hint">${esc(queue.nextStep || "")}</p><ul class="trend-queue-list">${rows}</ul>`;
+}
+
+function renderTrending() {
+  renderTrendSources();
+  const trending = state.trending;
+  const meta = trending.meta;
+  if (meta) {
+    const sourceBits = [];
+    if (meta.sources?.domeggook?.ok) sourceBits.push("도매꾹 인기상품순 " + meta.topics.length + "개 키워드");
+    if (meta.sources?.ownerclan?.ok) sourceBits.push("오너클랜 100 " + meta.sources.ownerclan.items + "개");
+    if (meta.sources?.onchannel?.ok) sourceBits.push("온채널 판매랭킹 " + (meta.sources.onchannel.basisDate || "오늘"));
+    const baseline = [
+      meta.baselineDays?.domeggook,
+      meta.baselineDays?.ownerclan,
+      meta.baselineDays?.onchannel,
+    ].filter(Boolean)[0];
+    $("trendingMeta").innerHTML =
+      `<span>${icon("flame")}${esc(sourceBits.join(" · ") || "순위 수집 중")}</span>` +
+      `<span class="meta-dot">·</span><span>${meta.generatedAt ? "집계 " + kstTime(meta.generatedAt) : ""}</span>` +
+      (baseline ? `<span class="meta-dot">·</span><span>비교 기준 ${esc(baseline)}</span>` : '<span class="meta-dot">·</span><span>비교 기준 준비 중</span>');
+  }
+  $("trendError").hidden = !trending.error;
+  $("trendError").innerHTML = trending.error
+    ? esc(trending.error) + '<button data-action="trend-refresh">다시 시도</button>'
+    : "";
+  $("trendStatus").textContent = trending.loading
+    ? "도매몰 공개 순위를 모으는 중입니다…"
+    : meta
+      ? `${trending.items.length}개 표시 · 전체 ${meta.total}개 수집` +
+        (trending.query ? ` · ‘${trending.query}’ 검색` : "") +
+        (trending.stock ? " · 실재고 확인분만" : "")
+      : "";
+  $("trendNotes").innerHTML = meta?.notes?.length
+    ? `<details><summary>순위 데이터 출처와 한계</summary><ul>${meta.notes.map((note) => `<li>${esc(note)}</li>`).join("")}</ul></details>`
+    : "";
+  renderTrendQueue();
+  const grid = $("trendGrid");
+  if (trending.loading && !trending.items.length) {
+    grid.innerHTML =
+      '<div class="loading-state"><span class="spinner"></span>도매몰 판매·인기 순위를 모으고 있어요</div>';
+    return;
+  }
+  if (!trending.items.length)
+    grid.innerHTML = `<div class="empty-state">${icon("flame")}<h2>조건에 맞는 급등 상품이 없어요</h2><p>소싱처를 ‘전체’로 두거나, ‘실재고 확인된 상품만’을 끄고 다시 확인해보세요.<br>오너클랜·온채널 공개 순위는 재고를 공개하지 않아 실재고 확인 대상이 아닙니다.</p></div>`;
+  else grid.innerHTML = trending.items.map(renderProductCard).join("");
+}
+
+async function loadTrending() {
+  const trending = state.trending;
+  trending.loading = true;
+  trending.error = "";
+  renderTrending();
+  try {
+    const response = await fetch("/api/trending?" + trendQueryParams(), {
+      signal: AbortSignal.timeout(45000),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok)
+      throw new Error(data.error || "급등 상품을 불러오지 못했습니다.");
+    if (!Array.isArray(data.products))
+      throw new Error("급등 상품 응답 형식이 올바르지 않습니다.");
+    trending.items = data.products.filter(isStoredProduct);
+    trending.meta = data;
+  } catch (error) {
+    if (error.name !== "AbortError")
+      trending.error = error.message || "급등 상품을 불러오지 못했습니다.";
+  } finally {
+    trending.loading = false;
+    renderTrending();
+  }
+}
+
+async function loadTrendQueue() {
+  const trending = state.trending;
+  trending.queueOpen = true;
+  trending.queueLoading = true;
+  renderTrendQueue();
+  try {
+    const params = new URLSearchParams({ limit: "3", registeredToday: "0" });
+    if (trending.query) params.set("q", trending.query);
+    if (trending.stock) params.set("stock", "verified");
+    const response = await fetch("/api/trending/queue?" + params, {
+      signal: AbortSignal.timeout(45000),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok)
+      throw new Error(data.error || "등록 후보를 불러오지 못했습니다.");
+    trending.queue = data;
+  } catch (error) {
+    trending.queue = null;
+    trending.error = error.name === "AbortError" ? "" : error.message || "등록 후보를 불러오지 못했습니다.";
+  } finally {
+    trending.queueLoading = false;
+    renderTrending();
+  }
 }
 
 async function loadIdea() {
@@ -1554,11 +1751,17 @@ function exportSelection() {
 // One delegated handler keeps generated cards free of inline JavaScript.
 document.addEventListener("click", (event) => {
   const target = event.target.closest(
-    "[data-action], [data-view], [data-query], [data-close], [data-page], [data-category], [data-keyword], [data-filter-clear]",
+    "[data-action], [data-view], [data-query], [data-close], [data-page], [data-category], [data-keyword], [data-filter-clear], [data-trend-source]",
   );
   if (!target || target.disabled) return;
   if (target.dataset.view) {
     setView(target.dataset.view);
+    return;
+  }
+  if (target.dataset.trendSource) {
+    state.trending.source = target.dataset.trendSource;
+    state.trending.queueOpen = false;
+    loadTrending();
     return;
   }
   if (target.dataset.close) {
@@ -1649,6 +1852,13 @@ document.addEventListener("click", (event) => {
       break;
     case "retry":
       state.mode === "live" ? searchLive() : renderCatalog();
+      break;
+    case "trend-refresh":
+      state.trending.queueOpen = false;
+      loadTrending();
+      break;
+    case "trend-queue":
+      loadTrendQueue();
       break;
     case "load-live":
       searchLive(true);
@@ -1745,6 +1955,22 @@ $("resetFilters").addEventListener("click", () => {
     searchLive();
   else renderCatalog();
 });
+$("trendForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  state.trending.query = $("trendInput").value.trim().slice(0, 40);
+  state.trending.queueOpen = false;
+  loadTrending();
+});
+for (const [id, key] of [
+  ["trendStock", "stock"],
+  ["trendSingleOrder", "singleOrder"],
+  ["trendFreeShipping", "freeShipping"],
+])
+  $(id).addEventListener("change", () => {
+    state.trending[key] = $(id).checked;
+    state.trending.queueOpen = false;
+    loadTrending();
+  });
 $("filterToggle").addEventListener("click", () => {
   const open = $("filtersPanel").classList.toggle("open");
   $("filterToggle").setAttribute("aria-expanded", String(open));

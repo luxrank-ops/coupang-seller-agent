@@ -78,7 +78,9 @@ export function buildDomeggookListQuery(params, pageSize = PAGE_SIZE) {
     throw new SourcingError("검색어를 1~100자로 입력해주세요.", 400);
   if (text(params.get("seller"))) query.id = text(params.get("seller")).slice(0, 40);
   // 검색어가 있으면 정확도순, 없으면 도매꾹 랭킹순이 API 기본값이다.
-  query.so = keyword ? "se" : "rd";
+  // sort=popular(인기상품순 ha)·rank(도매꾹랭킹순 rd)를 주면 판매 실적이 반영된 순서를 그대로 쓴다.
+  const sort = text(params.get("sort"));
+  query.so = sort === "popular" ? "ha" : sort === "rank" ? "rd" : keyword ? "se" : "rd";
   const minPrice = text(params.get("minPrice"));
   const maxPrice = text(params.get("maxPrice"));
   if (minPrice) query.mnp = String(normalizeMoney(minPrice));

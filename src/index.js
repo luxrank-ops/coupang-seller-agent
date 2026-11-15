@@ -8,6 +8,7 @@ import {
 } from "./sourcing.js";
 import { probeOwnerclan, searchOwnerclan, ownerclanConfigured } from "./ownerclan.js";
 import { searchIdeaProducts } from "./ideaDiscovery.js";
+import { buildRegistrationQueue, collectTrending } from "./trending.js";
 import {
   probeWing,
   registerSellerProduct,
@@ -129,6 +130,8 @@ export default {
         "/api/products": "GET",
         "/api/item-detail": "GET",
         "/api/idea-products": "GET",
+        "/api/trending": "GET",
+        "/api/trending/queue": "GET",
         "/api/wing/status": "GET",
         "/api/generate-seo": "POST",
         "/api/register-product": "POST",
@@ -185,6 +188,50 @@ export default {
 
       if (url.pathname === "/api/idea-products") {
         return json(await searchIdeaProducts(env, url.searchParams));
+      }
+
+      if (url.pathname === "/api/trending") {
+        // 소싱처 공개 순위는 분 단위로 바뀌지 않아 3분간 재사용한다(순위 스냅샷은 별도 키로 보관).
+        const cacheKey = new URLSearchParams({
+          source: url.searchParams.get("source") || "all",
+          q: url.searchParams.get("q") || "",
+          limit: url.searchParams.get("limit") || "24",
+          stock: url.searchParams.get("stock") || "available",
+          singleOrder: url.searchParams.get("singleOrder") || "",
+          freeShipping: url.searchParams.get("freeShipping") || "",
+          minPrice: url.searchParams.get("minPrice") || "",
+          maxPrice: url.searchParams.get("maxPrice") || "",
+        }).toString();
+        return await cachedJson(
+          ctx,
+          url,
+          "trending:" + cacheKey,
+          () => collectTrending(env, url.searchParams, { ctx, origin: url.origin }),
+          180,
+        );
+      }
+
+      if (url.pathname === "/api/trending/queue") {
+        // 후보 선정은 화면 표시 개수와 무관하게 넓게 본다.
+        const queueParams = new URLSearchParams(url.searchParams);
+        queueParams.set("limit", "60");
+        const trending = await collectTrending(env, queueParams, {
+          ctx,
+          origin: url.origin,
+        });
+        const queue = buildRegistrationQueue(trending.products, {
+          limit: url.searchParams.get("limit") || "3",
+          registeredToday: url.searchParams.get("registeredToday") || "0",
+        });
+        return json({
+          ...queue,
+          source: trending.source,
+          generatedAt: trending.generatedAt,
+          baselineDays: trending.baselineDays,
+          sources: trending.sources,
+          notes: trending.notes,
+          endpoint: url.origin + "/api/trending/queue",
+        });
       }
 
       if (url.pathname === "/api/wing/status") {
