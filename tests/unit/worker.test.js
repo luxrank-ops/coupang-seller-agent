@@ -419,3 +419,73 @@ test("non-API requests delegate to Workers static assets", async () => {
   assert.equal(await response.text(), "static dashboard");
   assert.equal((await request("/unknown")).status, 404);
 });
+
+test("역마진 판정 API는 최저가 -100원 순마진과 등록 차단 여부를 돌려준다", async () => {
+  const loss = await request(
+    "/api/margin/assess",
+    post({ wholesalePrice: 15000, shippingFee: 3000, marketPrice: 12900 }),
+  );
+  assert.equal(loss.status, 200);
+  const lossData = await loss.json();
+  assert.equal(lossData.assessed, true);
+  assert.equal(lossData.blockRegistration, true);
+  assert.equal(lossData.assessment.salePrice, 12800);
+  assert.equal(lossData.assessment.netProfit, -6582);
+  assert.match(lossData.note, /역마진/);
+
+  const profit = await request(
+    "/api/margin/assess?wholesalePrice=5000&shippingFee=3000&marketPrice=20000",
+  );
+  const profitData = await profit.json();
+  assert.equal(profitData.blockRegistration, false);
+  assert.equal(profitData.assessment.isLoss, false);
+  assert.equal(profitData.assessment.salePrice, 19900);
+
+  const unknown = await request("/api/margin/assess", post({ wholesalePrice: 5000 }));
+  const unknownData = await unknown.json();
+  assert.equal(unknownData.assessed, false);
+  assert.equal(unknownData.assessment, null);
+  assert.equal(unknownData.blockRegistration, false);
+
+  // 수수료율은 10.8/%20.108 둘 다 받는다.
+  const asPercent = await request(
+    "/api/margin/assess",
+    post({ wholesalePrice: 5000, shippingFee: 3000, marketPrice: 20000, coupangFeeRate: 10 }),
+  );
+  assert.equal((await asPercent.json()).assessment.coupangFeeRate, 0.1);
+});
+
+test("WING 등록은 전달받은 최저가 기준 역마진이면 쿠팡을 호출하지 않고 차단한다", async () => {
+  const env = {
+    WING_ACCESS_KEY: "access",
+    WING_SECRET_KEY: "secret",
+    WING_VENDOR_ID: "A01818224",
+  };
+  const body = {
+    name: "주방수납장",
+    salePrice: 12800,
+    displayCategoryCode: "632113",
+    notices: [{ categoryName: "기타 재화", detailName: "품명", content: "수납장" }],
+    images: ["https://cdn1.domeggook.com/x.jpg"],
+    description: "설명",
+    sku: "7385374",
+    wholesalePrice: 15000,
+    shippingFee: 3000,
+    marketPrice: 12900,
+  };
+  const stub = stubFetch(async () => {
+    throw new Error("쿠팡을 호출하면 안 됩니다");
+  });
+  try {
+    const response = await request("/api/register-product", post(body), env);
+    assert.equal(response.status, 422);
+    const data = await response.json();
+    assert.equal(data.ok, false);
+    assert.equal(data.code, "LOSS_BLOCKED");
+    assert.equal(data.detail.netProfit, -6582);
+    assert.match(data.error, /역마진/);
+    assert.equal(stub.calls.length, 0);
+  } finally {
+    stub.restore();
+  }
+});

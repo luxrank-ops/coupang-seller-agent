@@ -4392,3 +4392,123 @@ body:has(dialog[open]) {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── 역마진 자동 필터 ───────────────────────────────────────────────────── */
+.product-badge.margin-loss {
+  color: var(--danger);
+  background: #fde8ee;
+  border-color: #f3bccb;
+  font-weight: 700;
+}
+.product-badge.margin-thin {
+  color: var(--warning);
+  background: #fff4d6;
+  border-color: #f0d79b;
+}
+.margin-guard {
+  display: grid;
+  gap: 3px;
+  margin: 8px 0 0;
+  padding: 9px 11px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  border: 1px solid var(--line);
+  background: #f7f9fc;
+  color: var(--secondary);
+}
+.margin-guard > strong {
+  font-size: 13px;
+}
+.margin-guard small {
+  color: var(--muted);
+}
+.margin-guard.loss {
+  background: #fde8ee;
+  border-color: #f3bccb;
+  color: var(--danger);
+}
+.margin-guard.loss > strong {
+  color: var(--danger);
+}
+.margin-guard.thin {
+  background: #fff4d6;
+  border-color: #f0d79b;
+  color: #8a5a00;
+}
+.margin-guard.ok {
+  background: var(--success-light);
+  border-color: #b7dccc;
+  color: var(--green);
+}
+.margin-guard.hint {
+  background: #f2f5fa;
+}
+.margin-box {
+  margin: 0 0 14px;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcfe;
+}
+.market-box-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.market-box-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.market-box-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.market-box-form input,
+.queue-market input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 11px;
+  font: inherit;
+  font-size: 14px;
+  border: 1px solid #cbd6e4;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+.button-small {
+  padding: 7px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.queue-market {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 8px;
+}
+.queue-margin-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.queue-margin-summary .loss {
+  color: var(--danger);
+  font-weight: 700;
+}
+.queue-margin-summary .thin {
+  color: var(--warning);
+  font-weight: 700;
+}
+.trend-queue-item .text-button[disabled] {
+  color: var(--danger);
+  opacity: 1;
+  cursor: not-allowed;
+}

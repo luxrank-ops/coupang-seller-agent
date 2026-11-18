@@ -1,5 +1,5 @@
 import { CATEGORIES, SOURCES } from "./sources.js";
-import { estimateProduct } from "./margin.js";
+import { assessProductMargin, estimateProduct } from "./margin.js";
 
 export const MAX_PRODUCTS = 1000;
 export const MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -161,7 +161,12 @@ export function isStoredProduct(product) {
     (product.minOrder === null ||
       (Number.isSafeInteger(product.minOrder) &&
         product.minOrder > 0 &&
-        product.minOrder <= 1000000)),
+        product.minOrder <= 1000000)) &&
+    (product.marketPrice === undefined ||
+      product.marketPrice === null ||
+      (Number.isSafeInteger(product.marketPrice) &&
+        product.marketPrice > 0 &&
+        product.marketPrice <= 100000000)),
   );
 }
 
@@ -215,6 +220,13 @@ export function filterProducts(products, filters = {}) {
     if (filters.singleOrder && product.minOrder !== 1) return false;
     if (filters.consignment && product.fulfillment !== "consignment")
       return false;
+    if (filters.excludeLoss) {
+      // 쿠팡 최저가를 확인한 상품만 판정한다. 최저가 미확인 상품은 숨기지 않는다.
+      const marketPrice =
+        filters.marketPrices?.[product.id] ?? product.marketPrice;
+      const assessment = assessProductMargin(product, marketPrice);
+      if (assessment?.isLoss) return false;
+    }
     return true;
   });
   const missingLast = (a, b) =>

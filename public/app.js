@@ -17,7 +17,13 @@ import {
   MAX_PRODUCTS,
   MAX_FILE_BYTES,
 } from "./lib/products.js";
-import { calculateSafePrice, estimateProduct } from "./lib/margin.js";
+import {
+  calculateSafePrice,
+  estimateProduct,
+  assessProductMargin,
+  assessResaleMargin,
+  DEFAULT_COUPANG_FEE_RATE,
+} from "./lib/margin.js";
 import { CSV_TEMPLATE, importCsv, exportProducts } from "./lib/csv.js";
 import { icon, hydrateIcons } from "./lib/icons.js";
 import { productVisual, illustration } from "./lib/illustrations.js";
@@ -61,6 +67,15 @@ const state = {
   selected: new Map(saved.selected.map((product) => [product.id, product])),
   compare: new Map(),
   drafts: new Map(Object.entries(saved.drafts)),
+  marketPrices: new Map(
+    Object.entries(saved.marketPrices || {}).filter(
+      ([id, price]) =>
+        typeof id === "string" &&
+        Number.isSafeInteger(price) &&
+        price > 0 &&
+        price <= 100000000,
+    ),
+  ),
   page: 1,
   loading: true,
   liveError: "",
@@ -125,7 +140,7 @@ if (
 for (const field of ["minPrice", "maxPrice"])
   if (/^\d{1,9}$/.test(urlParams.get(field) || ""))
     $(field).value = urlParams.get(field);
-for (const field of ["singleOrder", "freeShipping", "consignment"])
+for (const field of ["singleOrder", "freeShipping", "consignment", "filterMarginSafe"])
   $(field).checked = urlParams.get(field) === "true";
 $("storageWarning").hidden = !state.storageFailed;
 
@@ -202,8 +217,55 @@ function filters() {
     freeShipping: $("freeShipping").checked,
     singleOrder: $("singleOrder").checked,
     consignment: live ? false : $("consignment").checked,
+    excludeLoss: $("filterMarginSafe").checked,
+    filterMarginSafe: $("filterMarginSafe").checked,
+    marketPrices: Object.fromEntries(state.marketPrices),
     sort: $("sortOrder").value,
   };
+}
+
+/* ── 역마진 자동 필터 ────────────────────────────────────────────────────
+ * 쿠팡 동급 최저가를 확인한 상품은 최저가 -100원 판매가에서 순마진을 계산해
+ * 0원 이하면 '역마진'으로 표시하고 판매 후보·등록·내보내기에서 차단한다.
+ * 최저가를 모르면 판정하지 않고 '확인 필요'로 남긴다.
+ */
+function marketPriceOf(product) {
+  if (!product) return null;
+  const stored = state.marketPrices.get(product.id);
+  if (Number.isSafeInteger(stored) && stored > 0) return stored;
+  return Number.isSafeInteger(product.marketPrice) && product.marketPrice > 0
+    ? product.marketPrice
+    : null;
+}
+
+function marginRisk(product) {
+  return assessProductMargin(product, marketPriceOf(product));
+}
+
+function marginBadge(product) {
+  const risk = marginRisk(product);
+  if (!risk) return "";
+  if (risk.isLoss)
+    return `<span class="product-badge margin-loss" title="쿠팡 최저가 ${money(risk.marketPrice)} - 100원에서 순마진 ${money(risk.netProfit)}">역마진 차단</span>`;
+  if (risk.verdict === "thin")
+    return `<span class="product-badge margin-thin" title="쿠팡 최저가 기준 순마진율 ${risk.marginRate}%">마진 주의</span>`;
+  return "";
+}
+
+function marginSummary(product) {
+  const risk = marginRisk(product);
+  if (!risk) return "";
+  return `<p class="margin-guard ${risk.verdict}"><strong>${risk.isLoss ? "역마진 자동 차단" : risk.verdict === "thin" ? "마진 주의" : "최저가 대비 흑자"}</strong> · 쿠팡 최저가 ${money(risk.marketPrice)} − 100원 = 판매가 ${money(risk.salePrice)} · 수수료 ${money(risk.coupangFee)} · 원가 ${money(risk.totalCost)} · 순마진 <b>${risk.netProfit > 0 ? "+" : ""}${money(risk.netProfit)}</b> (${risk.marginRate}%)</p>`;
+}
+
+function setMarketPrice(id, value) {
+  const price = Number(String(value ?? "").replace(/[^\d]/g, ""));
+  if (!Number.isSafeInteger(price) || price <= 0 || price > 100000000) {
+    state.marketPrices.delete(id);
+    return null;
+  }
+  state.marketPrices.set(id, price);
+  return price;
 }
 
 function validatePriceFilters() {
@@ -233,7 +295,7 @@ function syncUrl() {
   if (active.source !== "all") params.set("source", active.source);
   for (const key of ["minPrice", "maxPrice"])
     if (active[key] !== "") params.set(key, active[key]);
-  for (const key of ["freeShipping", "singleOrder", "consignment"])
+  for (const key of ["freeShipping", "singleOrder", "consignment", "filterMarginSafe"])
     if (active[key]) params.set(key, "true");
   const hash = state.view === "discover" ? "" : "#" + state.view;
   history.replaceState(
@@ -353,6 +415,7 @@ function renderActiveFilters(active) {
     ["freeShipping", "배송비 0원"],
     ["singleOrder", "1개부터 주문"],
     ["consignment", "위탁배송"],
+    ["filterMarginSafe", "역마진 상품 제외"],
   ])
     if (active[key]) chips.push([key, label]);
   $("activeFilters").innerHTML = chips
@@ -377,8 +440,8 @@ function renderProductCard(product) {
         ? "공급사 배송비 0원"
         : "배송 " + money(product.shippingFee);
   return `<article class="product-card ${selected ? "is-selected" : ""}" data-product="${id}">
-    <div class="product-image-wrap"><button class="product-art-button" data-action="detail" data-id="${id}" aria-label="${esc(product.name)} 상세 보기">${productVisual(product)}</button><div class="product-badges"><span class="product-badge ${product.dataKind === "live" ? "live" : ""}">${kindLabel(product)}</span><span class="product-badge fulfillment">${FULFILLMENTS[product.fulfillment] || "방식 확인 필요"}</span>${product.rank ? `<span class="product-badge trend">${icon("flame")}${product.rank}위</span>` : ""}${product.rankDelta > 0 ? `<span class="product-badge rising">▲${product.rankDelta}</span>` : product.isNew && product.baselineDay ? '<span class="product-badge fresh">NEW</span>' : ""}</div><button class="favorite-button" data-action="favorite" data-id="${id}" aria-label="${esc(product.name)} ${favorite ? "관심 상품 해제" : "관심 상품 저장"}" aria-pressed="${favorite}">${icon("heart")}</button></div>
-    <div class="product-info"><div class="product-source"><span class="source-mini-dot"></span>${esc(source.name)}${product.dataKind === "demo" ? '<span class="source-inline-note">· 소싱처 예시</span>' : ""}</div>${Array.isArray(product.signals) && product.signals.length ? `<p class="product-signals">${product.signals.slice(0, 3).map((signal) => `<span>${esc(signal)}</span>`).join("")}</p>` : ""}<button class="product-name" data-action="detail" data-id="${id}">${esc(product.name)}</button><div class="product-price-row"><strong class="product-price">${product.wholesalePrice === null ? "확인 필요" : product.wholesalePrice.toLocaleString("ko-KR") + "<small>원</small>"}</strong><span class="price-caption">${product.dataKind === "demo" ? "예시 공급가" : "공급가"}</span></div><div class="product-terms"><span>최소 ${product.minOrder === null ? "수량 확인" : product.minOrder.toLocaleString("ko-KR") + "개"}</span><span class="terms-divider">·</span><span>${shipping}</span></div><div class="product-estimate ${estimate ? "" : "unknown"}">${estimate ? `<span>권장가 <b>${money(estimate.salePrice)}</b></span><span>예상 이익 <strong>+${money(estimate.netProfit)}</strong></span>` : "<span>배송비·공급가 확인 후 이익 계산</span>"}</div></div>
+    <div class="product-image-wrap"><button class="product-art-button" data-action="detail" data-id="${id}" aria-label="${esc(product.name)} 상세 보기">${productVisual(product)}</button><div class="product-badges"><span class="product-badge ${product.dataKind === "live" ? "live" : ""}">${kindLabel(product)}</span><span class="product-badge fulfillment">${FULFILLMENTS[product.fulfillment] || "방식 확인 필요"}</span>${product.rank ? `<span class="product-badge trend">${icon("flame")}${product.rank}위</span>` : ""}${product.rankDelta > 0 ? `<span class="product-badge rising">▲${product.rankDelta}</span>` : product.isNew && product.baselineDay ? '<span class="product-badge fresh">NEW</span>' : ""}${marginBadge(product)}</div><button class="favorite-button" data-action="favorite" data-id="${id}" aria-label="${esc(product.name)} ${favorite ? "관심 상품 해제" : "관심 상품 저장"}" aria-pressed="${favorite}">${icon("heart")}</button></div>
+    <div class="product-info"><div class="product-source"><span class="source-mini-dot"></span>${esc(source.name)}${product.dataKind === "demo" ? '<span class="source-inline-note">· 소싱처 예시</span>' : ""}</div>${Array.isArray(product.signals) && product.signals.length ? `<p class="product-signals">${product.signals.slice(0, 3).map((signal) => `<span>${esc(signal)}</span>`).join("")}</p>` : ""}<button class="product-name" data-action="detail" data-id="${id}">${esc(product.name)}</button><div class="product-price-row"><strong class="product-price">${product.wholesalePrice === null ? "확인 필요" : product.wholesalePrice.toLocaleString("ko-KR") + "<small>원</small>"}</strong><span class="price-caption">${product.dataKind === "demo" ? "예시 공급가" : "공급가"}</span></div><div class="product-terms"><span>최소 ${product.minOrder === null ? "수량 확인" : product.minOrder.toLocaleString("ko-KR") + "개"}</span><span class="terms-divider">·</span><span>${shipping}</span></div><div class="product-estimate ${estimate ? "" : "unknown"}">${estimate ? `<span>권장가 <b>${money(estimate.salePrice)}</b></span><span>예상 이익 <strong>+${money(estimate.netProfit)}</strong></span>` : "<span>배송비·공급가 확인 후 이익 계산</span>"}</div>${marginSummary(product)}</div>
     <div class="product-actions"><button class="compare-button" data-action="compare" data-id="${id}" aria-label="${esc(product.name)} 비교 ${compared ? "해제" : "추가"}" aria-pressed="${compared}">${icon("columns")}비교</button><button class="select-button" data-action="select" data-id="${id}" aria-label="${esc(product.name)} 판매 후보 ${selected ? "해제" : "선택"}" aria-pressed="${selected}">${icon(selected ? "check" : "plus")}${selected ? "선택됨" : "선택하기"}</button></div>
   </article>`;
 }
@@ -496,7 +559,7 @@ function resetFilters(includeQuery = false) {
   $("sourceFilter").value = "all";
   $("minPrice").value = "";
   $("maxPrice").value = "";
-  for (const key of ["singleOrder", "freeShipping", "consignment"])
+  for (const key of ["singleOrder", "freeShipping", "consignment", "filterMarginSafe"])
     $(key).checked = false;
   if (includeQuery) {
     state.query = "";
@@ -610,6 +673,11 @@ function toggleSelected(id) {
   } else {
     if (state.selected.size >= 100)
       return toast("판매 후보는 최대 100개까지 선택할 수 있어요.");
+    const risk = marginRisk(product);
+    if (risk?.isLoss)
+      return toast(
+        `역마진 상품이라 판매 후보로 담을 수 없어요. 쿠팡 최저가 ${money(risk.marketPrice)} - 100원에서 ${money(risk.netProfit)} 손해가 납니다.`,
+      );
     state.selected.set(id, product);
     if (!state.activeProduct) state.activeProduct = id;
   }
@@ -668,7 +736,7 @@ function showProduct(id, open = true) {
     favorite = state.favorites.has(id);
   const link = productLink(product);
   $("productDialogContent").innerHTML =
-    `<div class="product-detail-top"><span>${categoryName(product.categoryId)} · ${kindLabel(product)} 상품</span><button class="icon-button" data-close="productDialog" aria-label="상품 상세 닫기">${icon("x")}</button></div><div class="product-detail-body"><div class="detail-art">${productVisual(product)}</div><div class="detail-data"><div class="product-source"><span class="source-mini-dot"></span>${esc(source.name)}${product.dataKind === "demo" ? " · 소싱처 예시" : ""}</div><h2 id="productDialogTitle">${esc(product.name)}</h2><div class="detail-price">${money(product.wholesalePrice)} <small>${product.dataKind === "demo" ? "예시 공급가" : "공급가"}</small></div><dl class="detail-terms"><dt>공급사 배송비</dt><dd>${money(product.shippingFee)}</dd><dt>최소 주문 수량</dt><dd>${product.minOrder === null ? "확인 필요" : product.minOrder.toLocaleString("ko-KR") + "개"}</dd><dt>판매 방식</dt><dd>${FULFILLMENTS[product.fulfillment] || "확인 필요"}</dd><dt>상품코드</dt><dd>${esc(product.sku || "미입력")}</dd><dt>재고·판매 권한</dt><dd>공급사 확인 필요</dd></dl><p class="detail-description">${esc(product.description || "상품의 구성과 거래 조건은 공급사에서 확인하세요.")}</p></div></div><div id="detailLive" class="detail-live"></div><div class="detail-bottom"><div class="detail-estimate"><span>${estimate ? "권장 판매가 " + money(estimate.salePrice) : "공급가·배송비 확인 후 계산 가능"}</span>${estimate ? "<strong>예상 이익 +" + money(estimate.netProfit) + "</strong>" : ""}</div><p class="form-hint">목표마진 30%·수수료 10.8%, 1개 판매 기준 추정. 부가세 정산·광고·반품비 등 제외.</p>${product.dataKind === "demo" ? '<div class="inline-warning">기능 체험용 예시입니다. 해당 도매몰의 실제 취급 상품·가격·재고가 아닙니다. 아래 링크는 실제 상품 원문이 아닌 유사 상품 키워드 검색입니다.</div>' : '<div class="inline-warning">공급가·배송비·MOQ·재고와 이미지 사용 권한, 법정 인증 등 판매 요건을 최종 확인하세요. API·CSV 정보는 자동 동기화되지 않습니다.</div>'}<div class="detail-footer">${link ? `<a class="button button-secondary" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${product.dataKind === "demo" || !product.url ? "도매몰에서 유사 상품 찾기" : "공급사 상품 원문 보기"} ${icon("arrow-up-right")}</a>` : ""}<button class="button button-secondary" data-action="favorite" data-id="${esc(id)}" aria-pressed="${favorite}">${icon("heart")}${favorite ? "관심 저장됨" : "관심 상품"}</button><button class="button ${selected ? "button-secondary is-selected" : "button-primary"}" data-action="select" data-id="${esc(id)}" aria-pressed="${selected}">${icon(selected ? "check" : "plus")}${selected ? "선택 해제" : "판매 후보로 선택"}</button></div></div>`;
+    `<div class="product-detail-top"><span>${categoryName(product.categoryId)} · ${kindLabel(product)} 상품</span><button class="icon-button" data-close="productDialog" aria-label="상품 상세 닫기">${icon("x")}</button></div><div class="product-detail-body"><div class="detail-art">${productVisual(product)}</div><div class="detail-data"><div class="product-source"><span class="source-mini-dot"></span>${esc(source.name)}${product.dataKind === "demo" ? " · 소싱처 예시" : ""}</div><h2 id="productDialogTitle">${esc(product.name)}</h2><div class="detail-price">${money(product.wholesalePrice)} <small>${product.dataKind === "demo" ? "예시 공급가" : "공급가"}</small></div><dl class="detail-terms"><dt>공급사 배송비</dt><dd>${money(product.shippingFee)}</dd><dt>최소 주문 수량</dt><dd>${product.minOrder === null ? "확인 필요" : product.minOrder.toLocaleString("ko-KR") + "개"}</dd><dt>판매 방식</dt><dd>${FULFILLMENTS[product.fulfillment] || "확인 필요"}</dd><dt>상품코드</dt><dd>${esc(product.sku || "미입력")}</dd><dt>재고·판매 권한</dt><dd>공급사 확인 필요</dd></dl><p class="detail-description">${esc(product.description || "상품의 구성과 거래 조건은 공급사에서 확인하세요.")}</p></div></div><div class="market-box"><div class="market-box-head"><strong>쿠팡 동급 최저가 대비 역마진 자동 판정</strong><span>최저가 − 100원 기준</span></div><div class="market-box-form"><input id="detailMarketPrice" type="number" min="1" max="100000000" step="1" inputmode="numeric" value="${marketPriceOf(product) ?? ""}" placeholder="쿠팡 최저가(배송비 포함)" aria-label="쿠팡 동급 최저가" /><button class="button button-secondary button-small" data-action="market-save" data-id="${esc(id)}">최저가 저장</button></div><div id="detailMarginGuard">${marginSummary(product) || '<p class="margin-guard hint">쿠팡에서 동일 상품 최저가를 확인해 입력하면, 최저가 − 100원에서도 남는 금액을 자동 계산해 역마진 상품을 차단합니다.</p>'}</div></div><div id="detailLive" class="detail-live"></div><div class="detail-bottom"><div class="detail-estimate"><span>${estimate ? "권장 판매가 " + money(estimate.salePrice) : "공급가·배송비 확인 후 계산 가능"}</span>${estimate ? "<strong>예상 이익 +" + money(estimate.netProfit) + "</strong>" : ""}</div><p class="form-hint">목표마진 30%·수수료 10.8%, 1개 판매 기준 추정. 부가세 정산·광고·반품비 등 제외.</p>${product.dataKind === "demo" ? '<div class="inline-warning">기능 체험용 예시입니다. 해당 도매몰의 실제 취급 상품·가격·재고가 아닙니다. 아래 링크는 실제 상품 원문이 아닌 유사 상품 키워드 검색입니다.</div>' : '<div class="inline-warning">공급가·배송비·MOQ·재고와 이미지 사용 권한, 법정 인증 등 판매 요건을 최종 확인하세요. API·CSV 정보는 자동 동기화되지 않습니다.</div>'}<div class="detail-footer">${link ? `<a class="button button-secondary" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${product.dataKind === "demo" || !product.url ? "도매몰에서 유사 상품 찾기" : "공급사 상품 원문 보기"} ${icon("arrow-up-right")}</a>` : ""}<button class="button button-secondary" data-action="favorite" data-id="${esc(id)}" aria-pressed="${favorite}">${icon("heart")}${favorite ? "관심 저장됨" : "관심 상품"}</button><button class="button ${selected ? "button-secondary is-selected" : "button-primary"}" data-action="select" data-id="${esc(id)}" aria-pressed="${selected}">${icon(selected ? "check" : "plus")}${selected ? "선택 해제" : "판매 후보로 선택"}</button></div></div>`;
   if (open) openDialog("productDialog");
   if (product.dataKind === "live" && product.sourceId === "domeggook")
     loadDetail(product);
@@ -1076,10 +1144,14 @@ function renderTrendQueue() {
       const verdict = VERDICTS[item.verdict] || VERDICTS.review;
       const product = state.trending.items.find((entry) => entry.id === item.id) || item.product;
       const failed = (item.checks || []).filter((check) => !check.ok);
-      return `<li class="trend-queue-item"><div class="trend-queue-top"><span class="verdict ${verdict.tone}">${verdict.label}</span><span class="trend-queue-name">${esc(item.name)}</span></div><p class="trend-queue-figures">${item.sourceName} · 공급가 ${money(item.wholesalePrice)} · 권장가 ${money(item.estimate?.salePrice)} · 예상 이익 ${item.estimate ? money(item.estimate.netProfit) : "계산 불가"}${item.rank ? ` · ${esc(item.rankScope || "")} ${item.rank}위` : ""}</p><ul class="trend-checks">${failed.map((check) => `<li>${esc(check.pending ? "확인 필요" : "미충족")} · ${esc(check.label)} (${esc(check.note)})</li>`).join("") || "<li>검수 항목을 모두 통과했습니다.</li>"}</ul>${product ? `<button class="text-button" data-action="select" data-id="${esc(item.id)}">${state.selected.has(item.id) ? "판매 후보에서 빼기" : "판매 후보에 담기"}</button>` : ""}</li>`;
+      const risk = item.marginAtLowest;
+      const riskLabel = risk
+        ? `<span class="verdict ${risk.isLoss ? "block" : risk.verdict === "thin" ? "review" : "ready"}">${risk.isLoss ? "역마진 차단" : risk.verdict === "thin" ? "마진 주의" : "최저가 흑자"}</span>`
+        : '<span class="verdict review">최저가 확인 필요</span>';
+      return `<li class="trend-queue-item"><div class="trend-queue-top"><span class="verdict ${verdict.tone}">${verdict.label}</span>${riskLabel}<span class="trend-queue-name">${esc(item.name)}</span></div><p class="trend-queue-figures">${esc(item.sourceName || "")} · 공급가 ${money(item.wholesalePrice)} · 권장가 ${money(item.estimate?.salePrice)} · 예상 이익 ${item.estimate ? money(item.estimate.netProfit) : "계산 불가"}${risk ? ` · 최저가 ${money(risk.marketPrice)} → 판매가 ${money(risk.salePrice)} · 순마진 ${risk.netProfit > 0 ? "+" : ""}${money(risk.netProfit)}` : ""}${item.rank ? ` · ${esc(item.rankScope || "")} ${item.rank}위` : ""}</p><div class="queue-market"><input type="number" min="1" max="100000000" step="1" inputmode="numeric" data-market-for="${esc(item.id)}" value="${risk?.marketPrice ?? marketPriceOf(item.product || {}) ?? ""}" placeholder="쿠팡 동급 최저가" aria-label="${esc(item.name)} 쿠팡 동급 최저가" /><button class="button button-secondary button-small" data-action="queue-market" data-id="${esc(item.id)}">최저가 저장·판정</button></div><ul class="trend-checks">${failed.map((check) => `<li>${esc(check.pending ? "확인 필요" : "미충족")} · ${esc(check.label)} (${esc(check.note)})</li>`).join("") || "<li>검수 항목을 모두 통과했습니다.</li>"}</ul>${product ? `<button class="text-button" data-action="select" data-id="${esc(item.id)}" ${risk?.isLoss ? "disabled" : ""}>${state.selected.has(item.id) ? "판매 후보에서 빼기" : risk?.isLoss ? "역마진 · 담기 차단" : "판매 후보에 담기"}</button>` : ""}</li>`;
     })
     .join("");
-  box.innerHTML = `<div class="trend-queue-head"><strong>오늘 등록 후보</strong><span>하루 안전 수량 ${queue.dailyQuota}건 · 상한 ${queue.hardCap}건 · 오늘 등록 ${queue.registeredToday}건</span></div><p class="trend-queue-hint">${esc(queue.nextStep || "")}</p><ul class="trend-queue-list">${rows}</ul>`;
+  box.innerHTML = `<div class="trend-queue-head"><strong>오늘 등록 후보</strong><span>하루 안전 수량 ${queue.dailyQuota}건 · 상한 ${queue.hardCap}건 · 오늘 등록 ${queue.registeredToday}건</span></div><p class="trend-queue-hint">${esc(queue.nextStep || "")}</p><div class="queue-margin-summary"><span>최저가 판정 ${queue.marginCheckedCount || 0}건</span><span class="loss">역마진 차단 ${queue.marginBlockedCount || 0}건</span><span class="thin">마진 주의 ${queue.thinMarginCount || 0}건</span><span>미확인 ${Math.max(0, (queue.evaluatedTotal || 0) - (queue.marginCheckedCount || 0))}건</span></div><ul class="trend-queue-list">${rows}</ul>`;
 }
 
 function renderTrending() {
@@ -1161,6 +1233,12 @@ async function loadTrendQueue() {
     const params = new URLSearchParams({ limit: "3", registeredToday: "0" });
     if (trending.query) params.set("q", trending.query);
     if (trending.stock) params.set("stock", "verified");
+    // 확인한 쿠팡 최저가를 넘기면 서버가 최저가 -100원 역마진을 자동 판정해 차단한다.
+    if (state.marketPrices.size)
+      params.set(
+        "marketPrices",
+        JSON.stringify(Object.fromEntries(state.marketPrices)),
+      );
     const response = await fetch("/api/trending/queue?" + params, {
       signal: AbortSignal.timeout(45000),
     });
@@ -1520,7 +1598,56 @@ function getMargin() {
   );
 }
 
+function activeMarginRisk() {
+  const product = state.selected.get(state.activeProduct);
+  const field = Number($("editMarketPrice").value);
+  const marketPrice =
+    Number.isSafeInteger(field) && field > 0
+      ? field
+      : marketPriceOf(product);
+  return assessResaleMargin({
+    wholesalePrice: $("editPrice").value,
+    shippingFee: $("editShipping").value,
+    marketPrice,
+    coupangFeeRate:
+      Number($("editFee").value) > 0
+        ? Number($("editFee").value) / 100
+        : DEFAULT_COUPANG_FEE_RATE,
+  });
+}
+
+function renderMarketGuard() {
+  const box = $("marginGuard");
+  if (!box) return;
+  const risk = activeMarginRisk();
+  if (!risk) {
+    box.className = "margin-guard hint";
+    box.innerHTML =
+      "쿠팡 동급 최저가를 입력하면 <strong>최저가 − 100원</strong> 판매가에서 도매 원가·배송비·수수료를 뺀 순마진을 자동 계산합니다. 0원 이하면 역마진으로 등록을 막습니다.";
+    return;
+  }
+  box.className = "margin-guard " + risk.verdict;
+  box.innerHTML =
+    `<strong>${risk.isLoss ? "⛔ 역마진 자동 차단" : risk.verdict === "thin" ? "⚠️ 마진 주의" : "✅ 최저가 대비 흑자"}</strong><span>쿠팡 최저가 ${money(risk.marketPrice)} → 판매가 ${money(risk.salePrice)} · 수수료 ${money(risk.coupangFee)} · 총원가 ${money(risk.totalCost)} · 순마진 <b>${risk.netProfit > 0 ? "+" : ""}${money(risk.netProfit)}</b> (${risk.marginRate}%)</span>` +
+    (risk.isLoss
+      ? '<small>이 가격에 팔면 팔수록 손해입니다. 판매 후보·WING 등록·CSV 내보내기가 차단됩니다.</small>'
+      : risk.verdict === "thin"
+        ? '<small>최저가 경쟁에서 순마진이 5% 미만입니다. 자동 등록하지 말고 직접 확인하세요.</small>'
+        : "");
+}
+
+/** 역마진으로 판정된 상품의 등록·내보내기 경로를 막는다. */
+function blockLossRegistration() {
+  const risk = activeMarginRisk();
+  if (!risk?.isLoss) return false;
+  toast(
+    `역마진 상품이라 등록을 차단했어요. 쿠팡 최저가 ${money(risk.marketPrice)} - 100원에서 순마진 ${money(risk.netProfit)}입니다. 최저가를 다시 확인하거나, 최저가 항목을 비우면 판정하지 않습니다.`,
+  );
+  return true;
+}
+
 function renderMargin() {
+  renderMarketGuard();
   try {
     const result = getMargin();
     $("marginError").hidden = true;
@@ -1588,6 +1715,7 @@ function renderPreparation() {
     ["editDescription", "description"],
   ])
     $(id).value = draft[key];
+  $("editMarketPrice").value = marketPriceOf(product) ?? "";
   $("draftStatus").textContent = state.storageFailed
     ? "저장 공간 확인 필요"
     : "이 브라우저에 자동 저장";
@@ -1661,6 +1789,7 @@ async function generateSeo() {
 
 async function copyDraft() {
   if (!$("editName").reportValidity() || !$("editName").value.trim()) return;
+  if (blockLossRegistration()) return;
   let estimate;
   try {
     estimate = getMargin();
@@ -1699,6 +1828,7 @@ async function copyDraft() {
 
 async function copyForPickle() {
   if (!$("editName").reportValidity() || !$("editName").value.trim()) return;
+  if (blockLossRegistration()) return;
   let estimate;
   try {
     estimate = getMargin();
@@ -1759,6 +1889,7 @@ function registrationInput() {
     product = state.selected.get(state.activeProduct);
   if (!draft || !product) throw new Error("판매 후보를 먼저 선택해주세요.");
   const estimate = getMargin();
+  const risk = activeMarginRisk();
   const detail =
     state.detail && state.detail.no === (product.sku || "")
       ? state.detail
@@ -1782,6 +1913,10 @@ function registrationInput() {
       sku: product.sku || "",
       deliveryCharge: 0,
       returnCharge: 10000,
+      // 서버가 등록 직전에 역마진을 한 번 더 검증하는 근거입니다.
+      marketPrice: risk?.marketPrice ?? null,
+      wholesalePrice: estimate.wholesalePrice,
+      shippingFee: estimate.wholesaleShipping,
       attributes: [],
       notices: noticeTemplate($("wingNotice").value, product, detail),
     },
@@ -1790,6 +1925,7 @@ function registrationInput() {
 
 async function registerToWing() {
   if (!$("editName").reportValidity()) return;
+  if (blockLossRegistration()) return;
   flushDraft();
   let prepared;
   try {
@@ -1864,6 +2000,7 @@ function renderRegisterResult() {
 
 function downloadWingPayload() {
   if (!$("editName").reportValidity() || !$("editName").value.trim()) return;
+  if (blockLossRegistration()) return;
   flushDraft();
   let prepared;
   try {
@@ -2012,8 +2149,16 @@ function exportSelection() {
       description: draft.description || product.description,
     };
   });
-  if (products.length)
-    downloadFile(exportProducts(products), "판매후보_상품.csv");
+  // 역마진으로 판정된 상품은 일괄 등록용 CSV에서도 뺄다.
+  const safe = products.filter((product) => !marginRisk(product)?.isLoss);
+  const blocked = products.length - safe.length;
+  if (!safe.length)
+    return toast("역마진으로 차단된 상품만 있어 내보낼 수 없습니다.");
+  downloadFile(exportProducts(safe), "판매후보_상품.csv");
+  if (blocked)
+    toast(
+      `역마진 ${blocked}건을 빼고 ${safe.length}건을 내보냈어요. 차단된 상품은 최저가를 다시 확인하세요.`,
+    );
 }
 
 // One delegated handler keeps generated cards free of inline JavaScript.
@@ -2144,6 +2289,61 @@ document.addEventListener("click", (event) => {
       resetFilters(true);
       applySearch();
       break;
+    case "market-save": {
+      const product = findProduct(id);
+      if (!product) break;
+      const saved = setMarketPrice(id, $("detailMarketPrice").value);
+      const risk = marginRisk(product);
+      if (risk?.isLoss && state.selected.has(id)) {
+        state.selected.delete(id);
+        if (state.activeProduct === id) {
+          state.activeProduct = state.selected.keys().next().value || null;
+          stopSeo();
+        }
+      }
+      persist();
+      renderBadges();
+      renderCurrentView();
+      if ($("productDialog").open) showProduct(id, false);
+      if (state.trending.queueOpen) loadTrendQueue();
+      toast(
+        !saved
+          ? "쿠팡 최저가를 지웠어요. 최저가 미확인 상품은 역마진 판정을 하지 않습니다."
+          : !risk
+            ? "쿠팡 최저가를 저장했어요. 공급가·배송비를 확인하면 역마진을 자동 판정합니다."
+            : risk.isLoss
+              ? `역마진으로 판정했습니다. 최저가 ${money(saved)} - 100원에서 ${money(risk.netProfit)} 손해라 판매 후보에서 제외했어요.`
+              : `쿠팡 최저가 ${money(saved)} 기준 순마진 ${money(risk.netProfit)} (${risk.marginRate}%)입니다.`,
+      );
+      break;
+    }
+    case "queue-market": {
+      const input = document.querySelector(
+        `[data-market-for="${CSS.escape(id)}"]`,
+      );
+      const saved = setMarketPrice(id, input?.value);
+      const product = findProduct(id);
+      const risk = product ? marginRisk(product) : null;
+      if (risk?.isLoss && state.selected.has(id)) {
+        state.selected.delete(id);
+        if (state.activeProduct === id)
+          state.activeProduct = state.selected.keys().next().value || null;
+      }
+      persist();
+      renderBadges();
+      renderCurrentView();
+      if (state.trending.queueOpen) loadTrendQueue();
+      toast(
+        !saved
+          ? "쿠팡 최저가를 지웠어요."
+          : !risk
+            ? "쿠팡 최저가를 저장했어요. 공급가·배송비를 확인하면 자동 판정합니다."
+            : risk.isLoss
+              ? `역마진 차단: 최저가 ${money(saved)} - 100원에서 ${money(risk.netProfit)} 손해입니다.`
+              : `쿠팡 최저가 ${money(saved)} 기준 순마진 ${money(risk.netProfit)}입니다.`,
+      );
+      break;
+    }
     case "candidate":
       flushDraft();
       stopSeo();
@@ -2201,6 +2401,7 @@ for (const key of [
   "singleOrder",
   "freeShipping",
   "consignment",
+  "filterMarginSafe",
   "sortOrder",
 ])
   $(key).addEventListener("change", () => {
@@ -2323,6 +2524,10 @@ for (const dialog of document.querySelectorAll("dialog")) {
 $("prepareForm").addEventListener("submit", (event) => event.preventDefault());
 $("prepareForm").addEventListener("input", (event) => {
   if (!state.activeProduct) return;
+  if (event.target.id === "editMarketPrice") {
+    setMarketPrice(state.activeProduct, event.target.value);
+    persist();
+  }
   if (event.target.id === "editName" || event.target.id === "editDescription") {
     const draft = state.drafts.get(state.activeProduct);
     if (draft && (draft.seoName || draft.tags?.length)) {

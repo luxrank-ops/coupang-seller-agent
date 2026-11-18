@@ -8,6 +8,7 @@ export function loadWorkspace(storage) {
     selected: [],
     imported: [],
     drafts: {},
+    marketPrices: {},
     mode: "live",
     warning: false,
   };
@@ -51,11 +52,24 @@ export function loadWorkspace(storage) {
             : [];
       }
     }
+    // 확인한 쿠팡 최저가(상품 id → 원). 역마진 자동 판정의 근거로 남긴다.
+    const marketPrices = Object.create(null);
+    if (data.marketPrices && typeof data.marketPrices === "object") {
+      for (const [id, value] of Object.entries(data.marketPrices).slice(
+        -MAX_PRODUCTS,
+      )) {
+        if (typeof id !== "string" || !id || id.length > 200) continue;
+        if (!Number.isSafeInteger(value) || value <= 0 || value > 100000000)
+          continue;
+        marketPrices[id] = value;
+      }
+    }
     return {
       favorites: products(data.favorites, MAX_PRODUCTS),
       selected: products(data.selected, 100),
       imported: products(data.imported, MAX_PRODUCTS),
       drafts,
+      marketPrices,
       mode: data.mode === "imported" ? "imported" : "live",
       warning: false,
     };
@@ -74,6 +88,9 @@ export function saveWorkspace(storage, state) {
         selected: [...state.selected.values()],
         imported: state.imported,
         drafts: Object.fromEntries([...state.drafts].slice(-MAX_PRODUCTS)),
+        marketPrices: Object.fromEntries(
+          [...(state.marketPrices || [])].slice(-MAX_PRODUCTS),
+        ),
         mode: state.mode === "imported" ? "imported" : "live",
       }),
     );

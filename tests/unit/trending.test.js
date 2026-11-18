@@ -366,3 +366,66 @@ test("buildRegistrationQueue grades candidates and enforces the daily quota", ()
   assert.ok(capped.candidates.length <= 5);
   assert.equal(capped.recommendedNow, 3);
 });
+
+test("쿠팡 최저가를 확인하면 역마진 후보를 자동 차단하고 흑자만 ready로 둔다", () => {
+  const make = (id, wholesalePrice, shippingFee = 3000) => ({
+    id,
+    name: `수납정리함 ${id}`,
+    sourceId: "domeggook",
+    sourceName: "도매꾹",
+    sku: id,
+    wholesalePrice,
+    shippingFee,
+    minOrder: 1,
+    inStock: true,
+    rank: 1,
+  });
+  const products = [
+    make("loss", 15000), // 12,800 판매 − 1,382 수수료 − 18,000 = -6,582
+    make("ok", 15000), // 29,900 판매 − 3,229 수수료 − 18,000 = 흑자
+    make("thin", 15000), // 21,000 판매 → 순마진 732원(3.5%)
+    make("unknown", 15000),
+  ];
+  const marketPrices = { loss: 12900, ok: 30000, thin: 21100 };
+  const bySku = { loss: 12900, ok: 30000, thin: 21100 };
+  const queue = buildRegistrationQueue(products, {
+    limit: "5",
+    marketPrices: JSON.stringify(marketPrices),
+  });
+  const byId = (id) => queue.candidates.find((item) => item.id === id);
+
+  assert.equal(byId("loss").verdict, "block");
+  assert.equal(byId("loss").marginAtLowest.isLoss, true);
+  assert.equal(byId("loss").marginAtLowest.netProfit, -6582);
+  assert.ok(byId("loss").reasons[0].startsWith("역마진 자동 차단"));
+  assert.equal(
+    byId("loss").checks.find((check) => check.key === "lowest_price").ok,
+    false,
+  );
+
+  assert.equal(byId("ok").marginAtLowest.isLoss, false);
+  assert.equal(byId("ok").checks.find((check) => check.key === "lowest_price").ok, true);
+  assert.equal(byId("ok").verdict, "ready");
+
+  assert.equal(byId("thin").marginAtLowest.verdict, "thin");
+  assert.equal(byId("thin").verdict, "review");
+
+  assert.equal(byId("unknown").marginAtLowest, null);
+  assert.equal(
+    byId("unknown").checks.find((check) => check.key === "lowest_price").pending,
+    true,
+  );
+
+  assert.equal(queue.marginCheckedCount, 3);
+  assert.equal(queue.marginBlockedCount, 1);
+  assert.equal(queue.thinMarginCount, 1);
+  // SKU로 넘긴 최저가도 상품과 연결된다.
+  assert.equal(
+    buildRegistrationQueue([make("skuOnly", 15000)], {
+      limit: "1",
+      marketPrices: { skuOnly: 12900 },
+    }).candidates[0].verdict,
+    "block",
+  );
+  assert.ok(queue.rules.some((rule) => rule.includes("역마진")));
+});
