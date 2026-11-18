@@ -310,7 +310,8 @@ function auditTeam(queue, lastRun) {
     metrics: [
       { label: "자동 등록 가능(ready)", value: `${counts.ready}건`, hint: "검수 8항목 모두 통과" },
       { label: "사람 확인(review)", value: `${counts.review}건`, hint: "재고·배송비·KC 근거 확인 필요" },
-      { label: "차단(block)", value: `${counts.block}건`, hint: "지재권·금지품목 키워드" },
+      { label: "차단(block)", value: `${counts.block}건`, hint: "지재권·금지품목·역마진" },
+      { label: "역마진 차단", value: `${queue.marginBlockedCount || 0}건`, hint: "최저가 -100원 순마진 0원 이하" },
       {
         label: "지재권·금지 키워드",
         value: `${KEYWORD_RULES.block}종`,
@@ -322,7 +323,7 @@ function auditTeam(queue, lastRun) {
       "실재고(공급사 판매중 응답) · 1개부터 주문 · 공급사 배송비 확인이 모두 확인돼야 자동 등록 대상이 됩니다.",
       `목표마진 30%·쿠팡 수수료 10.8% 기준 예상 이익 5,000원 이상, 공급가 10만 원 이하(왕복 반품비 2만 원 상한)만 통과합니다.`,
       `제목에 지재권·브랜드·캐릭터 키워드(${KEYWORD_RULES.brand}종)나 금지품목(${KEYWORD_RULES.banned}종)이 있으면 즉시 차단하고, KC 검토 키워드(${KEYWORD_RULES.kc}종)는 사람이 인증 근거를 확인합니다.`,
-      "‘쿠팡 최저가 -100원’은 등록 직전 WING에서 최저가를 조회해야 판정되므로 자동 판정하지 않고 확인 필요로 남깁니다. -100원에서도 흑자인 경우에만 등록합니다.",
+      "‘쿠팡 최저가 -100원’은 최저가를 확인한 상품이면 순마진을 자동 계산해 0원 이하면 즉시 차단합니다. 미확인 상품은 확인 필요로 남고 자동 등록 대상이 될 수 없습니다.",
     ],
     actions: [{ id: "audit", label: "검수 다시 실행" }],
     lastRun,

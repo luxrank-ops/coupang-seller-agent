@@ -284,6 +284,10 @@
                   ><input id="consignment" type="checkbox" /><span
                     >위탁배송 상품</span
                   ></label
+                ><label class="checkbox-label"
+                  ><input id="filterMarginSafe" type="checkbox" /><span
+                    >역마진 상품 제외</span
+                  ><span class="filter-note">최저가 확인분</span></label
                 >
               </fieldset>
               <div class="filter-tip">
@@ -624,6 +628,19 @@
                       required
                   /></label>
                 </div>
+                <div class="form-grid">
+                  <label class="form-field"
+                    >쿠팡 동급 최저가 (원)<input
+                      id="editMarketPrice"
+                      type="number"
+                      min="1"
+                      max="100000000"
+                      step="1"
+                      inputmode="numeric"
+                      placeholder="쿠팡에서 확인한 동일 상품 최저가" /></label
+                  >
+                </div>
+                <div id="marginGuard" class="margin-guard hint"></div>
                 <div
                   id="marginError"
                   class="field-error"
@@ -635,6 +652,12 @@
                   1개 판매·배송비 전액 부담 기준. 부가세
                   정산·광고·포장·반품·수입 비용 등은 제외됩니다. 실제 카테고리
                   수수료와 공급 조건을 확인하세요.
+                </p>
+                <p class="form-hint">
+                  쿠팡 동급 최저가를 입력하면 <strong>최저가 − 100원</strong>
+                  판매가에서 예상 순마진이 0원 이하인 역마진 상품을 자동으로
+                  차단합니다(판매 후보·WING 등록·CSV 내보내기 제외). 최저가를
+                  비우면 판정하지 않습니다.
                 </p>
                 <label class="form-field"
                   >확인한 상품 특징·사양<textarea

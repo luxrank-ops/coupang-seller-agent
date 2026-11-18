@@ -1,5 +1,6 @@
 import { searchDomeggook, SourcingError } from "./sourcing.js";
 import { calculateSafePrice } from "./margin.js";
+import { assessResaleMargin, normalizeMarketPrices } from "../public/lib/margin.js";
 
 /**
  * 판매 급등(인기 순위 상승) 상품 수집.
@@ -56,6 +57,8 @@ function money(value) {
   const parsed = Number(String(value).replace(/[^\d]/g, ""));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
+
+const won = (value) => Number(value).toLocaleString("ko-KR") + "원";
 
 function httpsImage(value) {
   const url = String(value || "").trim();
@@ -846,6 +849,16 @@ export function buildRegistrationQueue(products, options = {}) {
     0,
     100,
   );
+  // 화면·정기 액션이 확인한 쿠팡 최저가(상품 id/SKU → 원). 없으면 판정하지 않는다.
+  const marketPrices = normalizeMarketPrices(options.marketPrices);
+  const marketPriceOf = (product) => {
+    for (const key of [product.id, product.sku]) {
+      if (key && Object.hasOwn(marketPrices, key)) return marketPrices[key];
+    }
+    return Number.isSafeInteger(product.marketPrice) && product.marketPrice > 0
+      ? product.marketPrice
+      : null;
+  };
   const evaluated = (Array.isArray(products) ? products : []).map((product) => {
     const block = keywordHit(product.name, BLOCK_WORDS);
     const review = keywordHit(product.name, REVIEW_WORDS);
@@ -860,6 +873,13 @@ export function buildRegistrationQueue(products, options = {}) {
     } catch {
       estimate = null;
     }
+    // 역마진 자동 판정: 쿠팡 최저가 - 100원에서 순마진이 0원 이하면 등록 후보에서 차단한다.
+    const marketPrice = marketPriceOf(product);
+    const marginAtLowest = assessResaleMargin({
+      wholesalePrice: product.wholesalePrice,
+      shippingFee: product.shippingFee,
+      marketPrice,
+    });
     const checks = [
       {
         key: "stock",
@@ -914,22 +934,16 @@ export function buildRegistrationQueue(products, options = {}) {
       {
         key: "lowest_price",
         label: "쿠팡 최저가 -100원 흑자 확인",
-        ok: false,
-        pending: true,
-        note: "등록 직전 WING에서 쿠팡 최저가를 확인해 -100원 기준 흑자인지 판정해야 함(자동 판정 불가)",
+        ok: marginAtLowest ? !marginAtLowest.isLoss : false,
+        pending: !marginAtLowest,
+        note: marginAtLowest
+          ? `최저가 ${won(marginAtLowest.marketPrice)} → 판매가 ${won(marginAtLowest.salePrice)} · 순마진 ${marginAtLowest.netProfit > 0 ? "+" : "−"}${won(Math.abs(marginAtLowest.netProfit))} (${marginAtLowest.marginRate}%)${marginAtLowest.isLoss ? " → 역마진 자동 차단" : marginAtLowest.verdict === "thin" ? " → 마진 주의" : ""}`
+          : "쿠팡 최저가를 입력하면 최저가 -100원 기준 순마진을 자동 판정합니다(미입력 시 등록 직전 WING에서 확인 필요)",
       },
     ];
     const failed = checks.filter((check) => !check.ok && !check.pending);
-    const verdict =
-      block.length > 0
-        ? "block"
-        : failed.length === 0
-          ? "ready"
-          : failed.every((check) =>
-              ["stock", "moq", "shipping", "margin", "price_cap", "kc"].includes(check.key),
-            )
-            ? "review"
-            : "review";
+    const lossBlocked = marginAtLowest?.isLoss === true;
+    const verdict = block.length > 0 || lossBlocked ? "block" : failed.length === 0 && marginAtLowest?.verdict !== "thin" ? "ready" : "review";
     return {
       id: product.id,
       name: product.name,
@@ -950,9 +964,16 @@ export function buildRegistrationQueue(products, options = {}) {
       blockWords: block,
       reviewWords: review,
       estimate,
+      marginAtLowest,
+      marketPrice,
       checks,
       verdict,
-      reasons: failed.map((check) => `${check.label}: ${check.note}`),
+      reasons: lossBlocked && marginAtLowest
+        ? [
+            `역마진 자동 차단: 최저가 ${won(marginAtLowest.marketPrice)} - 100원 = ${won(marginAtLowest.salePrice)}에서 순마진 ${marginAtLowest.netProfit > 0 ? "+" : "−"}${won(Math.abs(marginAtLowest.netProfit))}`,
+            ...failed.map((check) => `${check.label}: ${check.note}`),
+          ]
+        : failed.map((check) => `${check.label}: ${check.note}`),
     };
   });
   const order = { ready: 0, review: 1, block: 2 };
@@ -985,6 +1006,12 @@ export function buildRegistrationQueue(products, options = {}) {
     readyCount: ready.length,
     evaluatedTotal: evaluated.length,
     verdictCounts,
+    marginCheckedCount: evaluated.filter((item) => item.marginAtLowest).length,
+    marginBlockedCount: evaluated.filter((item) => item.marginAtLowest?.isLoss)
+      .length,
+    thinMarginCount: evaluated.filter(
+      (item) => item.marginAtLowest?.verdict === "thin",
+    ).length,
     blockedKeywords: [...blockedHits.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
@@ -996,6 +1023,8 @@ export function buildRegistrationQueue(products, options = {}) {
       "실재고·판매중이 확인되지 않은 상품(오너클랜·온채널 공개 순위만 확인된 상품)은 자동 등록하지 않고 사람이 확인한다.",
       "지재권·브랜드·캐릭터 키워드가 제목에 있으면 제외하고, KC 인증 대상(전기·유아동·화장품·식품)은 사람이 인증 근거를 확인한 뒤 등록한다.",
       "등록 직전 쿠팡 최저가를 확인해 최저가 -100원에서도 흑자인 경우에만 등록한다.",
+      "쿠팡 최저가를 확인한 상품은 최저가 -100원 판매가에서 도매 원가·배송비·수수료를 뺀 순마진이 0원 이하면 역마진으로 보고 자동 등록 후보에서 차단한다.",
+      "순마진율이 5% 미만인 상품은 자동 등록하지 않고 사람이 확인한다.",
       "반품비 왕복 2만 원(전산 상한)을 감안해 공급가 10만 원 이하 위탁 상품을 우선한다.",
     ],
     nextStep:

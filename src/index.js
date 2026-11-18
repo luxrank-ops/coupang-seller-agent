@@ -1,4 +1,10 @@
 import { SOURCES, KEYWORDS } from "../public/lib/sources.js";
+import {
+  assessResaleMargin,
+  DEFAULT_COUPANG_FEE_RATE,
+  DEFAULT_PRICE_UNDERCUT,
+  normalizeMarketPrices,
+} from "../public/lib/margin.js";
 import { generateProductSeo } from "./prompt.js";
 import {
   getDomeggookItem,
@@ -138,6 +144,7 @@ export default {
         "/api/idea-products": "GET",
         "/api/trending": "GET",
         "/api/trending/queue": "GET",
+        "/api/margin/assess": "MULTI",
         "/api/agents/status": "GET",
         "/api/agents/run": "POST",
         "/api/agents/runs": "MULTI",
@@ -237,6 +244,8 @@ export default {
         const queue = buildRegistrationQueue(trending.products, {
           limit: url.searchParams.get("limit") || "3",
           registeredToday: url.searchParams.get("registeredToday") || "0",
+          // 쿠팡 최저가(상품 id/SKU → 원)를 넘기면 역마진을 자동 판정해 차단한다.
+          marketPrices: url.searchParams.get("marketPrices") || "",
         });
         return json({
           ...queue,
@@ -301,8 +310,63 @@ export default {
         });
       }
 
+      if (url.pathname === "/api/margin/assess") {
+        // 쿠팡 최저가 -100원 기준 순마진 판정. 등록 전 자동 점검·정기 액션이 쓴다.
+        const body = request.method === "POST" ? await readJson(request) : {};
+        const source = request.method === "POST" ? body : Object.fromEntries(url.searchParams);
+        const assessment = assessResaleMargin({
+          wholesalePrice: source.wholesalePrice,
+          shippingFee: source.shippingFee,
+          marketPrice: source.marketPrice,
+          coupangFeeRate:
+            source.coupangFeeRate === undefined || source.coupangFeeRate === ""
+              ? DEFAULT_COUPANG_FEE_RATE
+              : Number(source.coupangFeeRate) > 1
+                ? Number(source.coupangFeeRate) / 100
+                : Number(source.coupangFeeRate),
+          undercut:
+            source.undercut === undefined || source.undercut === ""
+              ? DEFAULT_PRICE_UNDERCUT
+              : source.undercut,
+        });
+        return json({
+          ok: true,
+          assessed: Boolean(assessment),
+          blockRegistration: assessment?.isLoss === true,
+          assessment,
+          note: assessment
+            ? assessment.isLoss
+              ? "쿠팡 최저가 -100원에서 순마진이 0원 이하입니다. 역마진이라 등록 후보에서 차단합니다."
+              : assessment.verdict === "thin"
+                ? "순마진율이 5% 미만입니다. 자동 등록하지 말고 사람이 확인하세요."
+                : "최저가 -100원에서도 흑자입니다."
+            : "쿠팡 최저가·공급가·배송비를 모두 확인해야 판정할 수 있습니다(추정하지 않음).",
+        });
+      }
+
       if (url.pathname === "/api/register-product") {
         const body = await readJson(request);
+        // 쿠팡 최저가가 함께 전달되면 등록 직전에 역마진을 한 번 더 막는다.
+        const guard = assessResaleMargin({
+          wholesalePrice: body.wholesalePrice,
+          shippingFee: body.shippingFee,
+          marketPrice: body.marketPrice,
+        });
+        if (guard?.isLoss)
+          return json(
+            {
+              ok: false,
+              error:
+                "역마진 상품이라 등록을 차단했습니다: 쿠팡 최저가 " +
+                guard.marketPrice.toLocaleString("ko-KR") +
+                "원 - 100원에서 순마진 " +
+                guard.netProfit.toLocaleString("ko-KR") +
+                "원입니다.",
+              code: "LOSS_BLOCKED",
+              detail: { code: "LOSS_BLOCKED", ...guard },
+            },
+            422,
+          );
         const result = await registerSellerProduct(env, {
           name: body.name,
           itemName: body.itemName,
@@ -323,7 +387,6 @@ export default {
         return json({ ...result, ok: result.ok }, result.ok ? 200 : 502);
       }
 
-      // /api/generate-seo (POST)
       const body = await readJson(request);
       if (
         typeof body.name !== "string" ||

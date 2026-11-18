@@ -188,3 +188,42 @@ test("manual additions preserve provenance and confirmed zero shipping", () => {
   assert.equal(product.shippingFee, 0);
   assert.equal(product.minOrder, 1);
 });
+
+test("역마진 제외 필터는 최저가 확인분만 빼고 미확인 상품은 남긴다", () => {
+  const product = (id, wholesalePrice, shippingFee = 3000) => ({
+    ...DEMO_PRODUCTS[0],
+    id,
+    name: `상품 ${id}`,
+    wholesalePrice,
+    shippingFee,
+    dataKind: "imported",
+  });
+  const list = [
+    product("loss", 15000),
+    product("ok", 5000),
+    product("unknown", 5000),
+  ];
+  const marketPrices = { loss: 12900, ok: 30000 };
+  const kept = filterProducts(list, { excludeLoss: true, marketPrices });
+  assert.deepEqual(
+    kept.map((item) => item.id),
+    ["ok", "unknown"],
+  );
+  // 확인하지 않은 상품(최저가 없음)은 임의로 숨기지 않는다.
+  assert.equal(filterProducts(list, {}).length, 3);
+  // 상품 자체에 저장된 최저가도 쓴다.
+  const withField = filterProducts(
+    [{ ...list[0], marketPrice: 12900 }],
+    { excludeLoss: true },
+  );
+  assert.equal(withField.length, 0);
+});
+
+test("저장 상품은 시장가 필드가 1~1억 정수 또는 없음일 때만 유효하다", () => {
+  const base = { ...DEMO_PRODUCTS[0] };
+  assert.equal(isStoredProduct({ ...base, marketPrice: 12900 }), true);
+  assert.equal(isStoredProduct({ ...base, marketPrice: null }), true);
+  assert.equal(isStoredProduct({ ...base, marketPrice: 0 }), false);
+  assert.equal(isStoredProduct({ ...base, marketPrice: 1.5 }), false);
+  assert.equal(isStoredProduct({ ...base, marketPrice: "12900" }), false);
+});
